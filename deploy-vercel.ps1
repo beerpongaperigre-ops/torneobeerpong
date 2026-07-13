@@ -8,7 +8,7 @@ Set-Location $RepoDir
 
 function Run-Git {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
-    & git @Args
+    & git -c http.sslBackend=schannel @Args
     if ($LASTEXITCODE -ne 0) {
         throw "Comando git fallito: git $($Args -join ' ')"
     }
@@ -25,6 +25,14 @@ $insideRepo = git rev-parse --is-inside-work-tree 2>$null
 if ($LASTEXITCODE -ne 0 -or $insideRepo.Trim() -ne "true") {
     throw "Questa cartella non risulta essere una repo Git."
 }
+
+$gitDir = git rev-parse --git-dir
+if (Test-Path (Join-Path $gitDir "rebase-merge") -or Test-Path (Join-Path $gitDir "rebase-apply")) {
+    throw "C'e' un rebase Git interrotto. Esegui 'git rebase --continue' oppure 'git rebase --abort' nella cartella VercelClient prima di rilanciare il deploy."
+}
+
+Write-Host "`nAllineo con GitHub..." -ForegroundColor Cyan
+Run-Git pull --rebase --autostash origin main
 
 Write-Host "`nStato modifiche:" -ForegroundColor Cyan
 git status --short
@@ -43,9 +51,6 @@ if (-not [string]::IsNullOrWhiteSpace($changes)) {
 else {
     Write-Host "`nNessuna modifica locale da committare." -ForegroundColor Yellow
 }
-
-Write-Host "`nAllineo con GitHub..." -ForegroundColor Cyan
-Run-Git pull --rebase origin main
 
 Write-Host "`nPush su GitHub..." -ForegroundColor Cyan
 Run-Git push origin main
