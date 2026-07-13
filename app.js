@@ -1,6 +1,6 @@
 const app = document.getElementById("app");
 const sessionKey = "aperigre-team-session";
-const STATE_STALE_SECONDS = 8;
+const STATE_STALE_SECONDS = 60;
 let cachedState = null;
 let busy = false;
 let renderInProgress = false;
