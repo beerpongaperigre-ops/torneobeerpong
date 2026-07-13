@@ -1,7 +1,6 @@
 {
   "rewrites": [
     { "source": "/squadra", "destination": "/" },
-    { "source": "/admin", "destination": "/" },
     { "source": "/calendario", "destination": "/" },
     { "source": "/classifiche", "destination": "/" },
     { "source": "/gironi", "destination": "/" },

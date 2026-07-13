@@ -37,8 +37,21 @@ function teamsSheet() {
 
 function setState(state) {
   const sh = stateSheet();
-  sh.getRange(2, 1, 1, 3).setValues([["state", JSON.stringify(state || {}), new Date().toISOString()]]);
+  const currentState = state || {};
+  sh.getRange(2, 1, 1, 3).setValues([["state", JSON.stringify(currentState), new Date().toISOString()]]);
+  syncTeams(currentState.teamCredentials || []);
   return { ok: true };
+}
+
+function syncTeams(credentials) {
+  const sh = teamsSheet();
+  const rows = [["username", "password", "teamName"]];
+  (credentials || []).forEach(item => {
+    if (!item) return;
+    rows.push([String(item.username || ""), String(item.password || ""), String(item.teamName || item.username || "")]);
+  });
+  sh.clearContents();
+  sh.getRange(1, 1, rows.length, 3).setValues(rows);
 }
 
 function getState() {
@@ -106,3 +119,4 @@ function doPost(e) {
     return jsonOut({ ok: false, error: error.message || String(error) });
   }
 }
+

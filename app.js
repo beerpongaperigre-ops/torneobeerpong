@@ -2,6 +2,7 @@ const app = document.getElementById("app");
 const sessionKey = "aperigre-team-session";
 let cachedState = null;
 let busy = false;
+let renderInProgress = false;
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[ch]));
@@ -37,7 +38,7 @@ function stateAge(state) {
   const timestamp = Date.parse(state?.updatedAtUtc || "");
   if (!timestamp) return "offline";
   const seconds = Math.round((Date.now() - timestamp) / 1000);
-  return seconds <= 12 ? "online" : `offline da ${seconds}s`;
+  return seconds <= 6 ? "online" : `offline da ${seconds}s`;
 }
 
 function tables(state) { return Array.isArray(state?.tavoli) ? state.tavoli : Object.values(state?.tavoli || {}); }
@@ -46,6 +47,7 @@ function teams(table) { return Array.isArray(table?.partita?.squadre) ? table.pa
 function players(team) { return Array.isArray(team?.giocatori) ? team.giocatori : Object.values(team?.giocatori || {}); }
 
 function go(path) { history.pushState({}, "", path); render(); }
+document.querySelector("[data-brand-home]")?.addEventListener("click", () => go("/"));
 window.addEventListener("popstate", render);
 
 function shell(title, content, state) {
@@ -73,7 +75,6 @@ function renderHome() {
       <button class="menu-button" data-go="/risultati">Risultati</button>
       <button class="menu-button" data-go="/campi">Area campi</button>
       <button class="menu-button" data-go="/squadra">Squadra</button>
-      <button class="menu-button" data-go="/admin">Admin</button>
     </section>
   `;
   app.querySelectorAll("[data-go]").forEach(button => button.addEventListener("click", () => go(button.dataset.go)));
@@ -81,11 +82,7 @@ function renderHome() {
 
 async function renderDashboard(kind) {
   const state = await loadState();
-  if (kind === "admin") {
-    shell("Admin", `<div class="card"><h2>Stato sincronizzazione</h2><p>Fase: ${esc(state.fase || "-")}</p><p>Ultimo aggiornamento: ${esc(state.updatedAtUtc || "-")}</p><p>Bridge: ${esc(state.bridgeVersion || "-")}</p><p>${esc(state.lastError || "Nessun errore")}</p></div>`, state);
-    return;
-  }
-  if (kind === "campi" || kind === "calendario") {
+if (kind === "campi" || kind === "calendario") {
     shell(kind === "campi" ? "Area Campi" : "Calendario", `<div class="grid">${tables(state).map(tableCard).join("")}</div>`, state);
     return;
   }
@@ -127,7 +124,7 @@ function renderLogin() {
       <label class="field">Utente<input class="input" name="username" autocomplete="username" required></label>
       <label class="field">Password<input class="input" name="password" type="password" autocomplete="current-password" required></label>
       <div class="actions"><button class="panel-button" type="submit">Entra</button><button class="panel-button secondary" type="button" data-home>Home</button></div>
-      <div class="notice">Le credenziali si configurano nel foglio Google, tab Teams.</div>
+      <div class="notice">Le credenziali vengono generate automaticamente da WinForms.</div>
     </form>
   `);
   app.querySelector("[data-login]").addEventListener("submit", async event => {
@@ -208,20 +205,25 @@ async function sendConsent(table, teamName) {
 }
 
 async function render() {
+  if (renderInProgress) return;
+  renderInProgress = true;
   const path = location.pathname.replace(/^\//, "") || "home";
   try {
     if (path === "home") return renderHome();
     if (path === "squadra") return await renderTeamPage();
-    if (["calendario", "classifiche", "gironi", "risultati", "campi", "admin"].includes(path)) return await renderDashboard(path);
+    if (["calendario", "classifiche", "gironi", "risultati", "campi"].includes(path)) return await renderDashboard(path);
     renderHome();
   } catch (error) {
     shell("Errore", `<div class="card"><h2>Qualcosa non torna</h2><p>${esc(error.message)}</p><div class="actions"><button class="panel-button" data-home>Home</button></div></div>`);
     const home = app.querySelector("[data-home]");
     if (home) home.addEventListener("click", () => go("/"));
+  } finally {
+    renderInProgress = false;
   }
 }
 
 render();
 setInterval(() => {
-  if (location.pathname === "/squadra" && session()) renderTeamPage();
-}, 1500);
+  const path = location.pathname;
+  if (!busy && path !== "/" && path !== "") render();
+}, 1000);
