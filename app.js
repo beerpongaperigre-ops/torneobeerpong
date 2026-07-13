@@ -1,5 +1,6 @@
 const app = document.getElementById("app");
 const sessionKey = "aperigre-team-session";
+const STATE_STALE_SECONDS = 8;
 let cachedState = null;
 let busy = false;
 let renderInProgress = false;
@@ -31,14 +32,20 @@ async function loadState() {
   const data = await api("getState");
   cachedState = data.state;
   if (!cachedState) throw new Error("Torneo non sincronizzato: abilita Google Sheets nel WinForms");
+  if (stateAgeSeconds(cachedState) > STATE_STALE_SECONDS) throw new Error("PC offline o sincronizzazione Vercel disattivata nel WinForms");
   return cachedState;
 }
 
-function stateAge(state) {
+function stateAgeSeconds(state) {
   const timestamp = Date.parse(state?.updatedAtUtc || "");
-  if (!timestamp) return "offline";
-  const seconds = Math.round((Date.now() - timestamp) / 1000);
-  return seconds <= 6 ? "online" : `offline da ${seconds}s`;
+  if (!timestamp) return Infinity;
+  return Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+}
+
+function stateAge(state) {
+  const seconds = stateAgeSeconds(state);
+  if (!Number.isFinite(seconds)) return "offline";
+  return seconds <= STATE_STALE_SECONDS ? "online" : `offline da ${seconds}s`;
 }
 
 function tables(state) { return Array.isArray(state?.tavoli) ? state.tavoli : Object.values(state?.tavoli || {}); }

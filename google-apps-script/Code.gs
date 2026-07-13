@@ -63,6 +63,7 @@ function getState() {
 function clearAll() {
   stateSheet().getRange(2, 1, Math.max(1, stateSheet().getMaxRows() - 1), 3).clearContent();
   commandsSheet().getRange(2, 1, Math.max(1, commandsSheet().getMaxRows() - 1), 6).clearContent();
+  syncTeams([]);
   return { ok: true };
 }
 
