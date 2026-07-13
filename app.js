@@ -3,7 +3,7 @@ const sessionKey = "aperigre-team-session";
 const STATE_STALE_SECONDS = 60;
 let cachedState = null;
 let busy = false;
-let renderInProgress = false;
+let latestRenderId = 0;
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[ch]));
@@ -53,9 +53,9 @@ function groups(state) { return Array.isArray(state?.gironi) ? state.gironi : Ob
 function teams(table) { return Array.isArray(table?.partita?.squadre) ? table.partita.squadre : Object.values(table?.partita?.squadre || {}); }
 function players(team) { return Array.isArray(team?.giocatori) ? team.giocatori : Object.values(team?.giocatori || {}); }
 
-function go(path) { history.pushState({}, "", path); render(); }
+function go(path) { if (location.pathname !== path) history.pushState({}, "", path); render(); }
 document.querySelector("[data-brand-home]")?.addEventListener("click", () => go("/"));
-window.addEventListener("popstate", render);
+window.addEventListener("popstate", () => render());
 
 function shell(title, content, state) {
   app.innerHTML = `
@@ -73,31 +73,40 @@ function renderHome() {
       <div class="hero-meta"><span>@APERIGRE_</span><span>2026</span><span>#APERIGRE2026</span></div>
       <div class="brand"><h1>APERIGRE</h1><p>BEER PONG 2026</p></div>
       <div class="event-row"><strong>TORNEO LIVE</strong><strong>MAGRE DI SCHIO</strong></div>
-      <div class="subline">Punteggi, gironi, risultati e area squadre</div>
+      <div class="subline">Punteggi, gironi, fasi finali e area squadre</div>
     </section>
     <section class="menu-grid">
       <button class="menu-button" data-go="/calendario">Calendario</button>
-      <button class="menu-button" data-go="/classifiche">Classifiche live</button>
       <button class="menu-button" data-go="/gironi">Gironi</button>
-      <button class="menu-button" data-go="/risultati">Risultati</button>
       <button class="menu-button" data-go="/campi">Area campi</button>
+      <button class="menu-button" data-go="/fasi-finali">Fasi finali</button>
       <button class="menu-button" data-go="/squadra">Squadra</button>
     </section>
   `;
   app.querySelectorAll("[data-go]").forEach(button => button.addEventListener("click", () => go(button.dataset.go)));
 }
 
-async function renderDashboard(kind) {
+async function renderDashboard(kind, renderId) {
+  if (cachedState && stateAgeSeconds(cachedState) <= STATE_STALE_SECONDS) renderDashboardState(kind, cachedState);
   const state = await loadState();
-if (kind === "campi" || kind === "calendario") {
+  if (renderId !== latestRenderId) return;
+  renderDashboardState(kind, state);
+}
+
+function renderDashboardState(kind, state) {
+  if (kind === "campi" || kind === "calendario") {
     shell(kind === "campi" ? "Area Campi" : "Calendario", `<div class="grid">${tables(state).map(tableCard).join("")}</div>`, state);
     return;
   }
-  if (kind === "gironi" || kind === "classifiche") {
-    shell(kind === "gironi" ? "Gironi" : "Classifiche Live", `<div class="grid">${groups(state).map(groupCard).join("")}</div>`, state);
+  if (kind === "gironi") {
+    shell("Gironi", `<div class="grid wide-grid">${groups(state).map(groupCard).join("")}</div>`, state);
     return;
   }
-  shell("Risultati", `<div class="grid">${groups(state).flatMap(g => g.partite || []).map(matchCard).join("") || `<div class="card"><p>Nessun risultato.</p></div>`}</div>`, state);
+  if (kind === "fasi-finali") {
+    renderFinals(state);
+    return;
+  }
+  renderHome();
 }
 
 function tableCard(table) {
@@ -107,13 +116,42 @@ function tableCard(table) {
 
 function groupCard(group) {
   const rows = group.squadre || [];
-  return `<article class="card"><h2>Girone ${esc(group.nome)}</h2>${rows.map(t => `<p>${esc(t.posizione)}. ${esc(t.nome)} - <strong>${esc(t.punti ?? 0)} pt</strong></p>`).join("") || `<p>Nessuna squadra.</p>`}</article>`;
+  const matches = group.partite || [];
+  return `<article class="card group-card"><h2>Girone ${esc(group.nome)}</h2>
+    <div class="standings">${rows.map(t => `<p class="standing-row ${group.gironiConclusi ? (t.qualificata ? "qualified" : "eliminated") : ""}">${esc(t.posizione)}. ${esc(t.nome)} - <strong>${esc(t.punti ?? 0)} pt</strong></p>`).join("") || `<p>Nessuna squadra.</p>`}</div>
+    <h3>Partite</h3>
+    <div class="matches">${matches.map(matchMiniCard).join("") || `<p>Nessuna partita.</p>`}</div>
+  </article>`;
+}
+
+function matchMiniCard(match) {
+  return `<div class="match-row"><span>${esc(match.squadra1)}</span><strong>${esc(match.punti1 ?? 0)} - ${esc(match.punti2 ?? 0)}</strong><span>${esc(match.squadra2)}</span><small>${esc(match.stato || "-")}</small></div>`;
 }
 
 function matchCard(match) {
   return `<article class="card"><h2>${esc(match.squadra1)} ${esc(match.punti1 ?? 0)} - ${esc(match.punti2 ?? 0)} ${esc(match.squadra2)}</h2><p>${esc(match.stato || "-")}</p></article>`;
 }
 
+function renderFinals(state) {
+  const finals = state.fasiFinali || {};
+  if (!finals.disponibile) {
+    shell("Fasi finali", `<div class="card"><h2>Non disponibili</h2><p>Le fasi finali saranno visibili quando vengono avviate da WinForms.</p></div>`, state);
+    return;
+  }
+
+  const rounds = [
+    ["Ottavi", finals.ottavi || []],
+    ["Quarti", finals.quarti || []],
+    ["Semifinali", finals.semifinali || []],
+    ["Finale 3/4", finals.finali34 || []],
+    ["Finale", finals.finali12 || []]
+  ];
+  shell("Fasi finali", `<div class="bracket">${rounds.map(([name, matches]) => `<section class="card bracket-round"><h2>${esc(name)}</h2>${matches.map(finalMatchCard).join("") || `<p>Da definire.</p>`}</section>`).join("")}</div>`, state);
+}
+
+function finalMatchCard(match) {
+  return `<div class="final-match"><div><span>${esc(match.squadra1 || "-")}</span><strong>${esc(match.punti1 ?? 0)}</strong></div><div><span>${esc(match.squadra2 || "-")}</span><strong>${esc(match.punti2 ?? 0)}</strong></div><small>${esc(match.stato || "-")}</small></div>`;
+}
 async function login(event) {
   event.preventDefault();
   const username = event.target.username.value.trim();
@@ -140,10 +178,11 @@ function renderLogin() {
   app.querySelector("[data-home]").addEventListener("click", () => go("/"));
 }
 
-async function renderTeamPage() {
+async function renderTeamPage(renderId) {
   const current = session();
   if (!current) { renderLogin(); return; }
   const state = await loadState();
+  if (renderId !== latestRenderId) return;
   const table = tables(state).find(t => teams(t).some(team => String(team.nome).toLowerCase() === String(current.teamName).toLowerCase()));
   if (!table || !table.partita) {
     shell(current.teamName, `<div class="card"><h2>Nessuna partita al momento</h2><p>Aspetta la chiamata al tavolo.</p><div class="actions"><button class="panel-button secondary" data-logout>Esci</button></div></div>`, state);
@@ -191,7 +230,7 @@ async function sendScore(button, table) {
       action: button.dataset.action,
       clientCreatedAtUtc: new Date().toISOString()
     }});
-    await renderTeamPage();
+    await renderTeamPage(++latestRenderId);
   } catch (error) {
     alert(error.message);
   } finally {
@@ -208,24 +247,22 @@ async function sendConsent(table, teamName) {
     squadra: teamName,
     clientCreatedAtUtc: new Date().toISOString()
   }});
-  await renderTeamPage();
+  await renderTeamPage(++latestRenderId);
 }
 
 async function render() {
-  if (renderInProgress) return;
-  renderInProgress = true;
+  const renderId = ++latestRenderId;
   const path = location.pathname.replace(/^\//, "") || "home";
   try {
     if (path === "home") return renderHome();
-    if (path === "squadra") return await renderTeamPage();
-    if (["calendario", "classifiche", "gironi", "risultati", "campi"].includes(path)) return await renderDashboard(path);
+    if (path === "squadra") return await renderTeamPage(renderId);
+    if (["calendario", "gironi", "campi", "fasi-finali"].includes(path)) return await renderDashboard(path, renderId);
     renderHome();
   } catch (error) {
+    if (renderId !== latestRenderId) return;
     shell("Errore", `<div class="card"><h2>Qualcosa non torna</h2><p>${esc(error.message)}</p><div class="actions"><button class="panel-button" data-home>Home</button></div></div>`);
     const home = app.querySelector("[data-home]");
     if (home) home.addEventListener("click", () => go("/"));
-  } finally {
-    renderInProgress = false;
   }
 }
 

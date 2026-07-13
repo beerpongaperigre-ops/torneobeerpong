@@ -6,6 +6,14 @@ $ErrorActionPreference = "Stop"
 $RepoDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $RepoDir
 
+function Run-Git {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
+    & git @Args
+    if ($LASTEXITCODE -ne 0) {
+        throw "Comando git fallito: git $($Args -join ' ')"
+    }
+}
+
 Write-Host "== VercelClient deploy ==" -ForegroundColor Cyan
 Write-Host "Cartella: $RepoDir"
 
@@ -22,24 +30,24 @@ Write-Host "`nStato modifiche:" -ForegroundColor Cyan
 git status --short
 
 $changes = git status --porcelain
-if ([string]::IsNullOrWhiteSpace($changes)) {
-    Write-Host "`nNessuna modifica da pubblicare." -ForegroundColor Yellow
-    exit 0
+if (-not [string]::IsNullOrWhiteSpace($changes)) {
+    Write-Host "`nAggiungo i file..." -ForegroundColor Cyan
+    Run-Git add .
+
+    $staged = git diff --cached --name-only
+    if (-not [string]::IsNullOrWhiteSpace($staged)) {
+        Write-Host "`nCreo commit: $Message" -ForegroundColor Cyan
+        Run-Git commit -m $Message
+    }
+}
+else {
+    Write-Host "`nNessuna modifica locale da committare." -ForegroundColor Yellow
 }
 
-Write-Host "`nAggiungo i file..." -ForegroundColor Cyan
-git add .
-
-$staged = git diff --cached --name-only
-if ([string]::IsNullOrWhiteSpace($staged)) {
-    Write-Host "Nessuna modifica staged." -ForegroundColor Yellow
-    exit 0
-}
-
-Write-Host "`nCreo commit: $Message" -ForegroundColor Cyan
-git commit -m $Message
+Write-Host "`nAllineo con GitHub..." -ForegroundColor Cyan
+Run-Git pull --rebase origin main
 
 Write-Host "`nPush su GitHub..." -ForegroundColor Cyan
-git push
+Run-Git push origin main
 
-Write-Host "`nFatto. Vercel partirà automaticamente dal push GitHub." -ForegroundColor Green
+Write-Host "`nFatto. Vercel partira' automaticamente dal push GitHub." -ForegroundColor Green

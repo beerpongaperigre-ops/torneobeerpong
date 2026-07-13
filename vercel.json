@@ -2,9 +2,8 @@
   "rewrites": [
     { "source": "/squadra", "destination": "/" },
     { "source": "/calendario", "destination": "/" },
-    { "source": "/classifiche", "destination": "/" },
     { "source": "/gironi", "destination": "/" },
-    { "source": "/risultati", "destination": "/" },
-    { "source": "/campi", "destination": "/" }
+    { "source": "/campi", "destination": "/" },
+    { "source": "/fasi-finali", "destination": "/" }
   ]
 }

@@ -148,3 +148,17 @@ button, input { font: inherit; letter-spacing: 0; }
 
 .brand-home { border: 0; background: transparent; color: var(--red); cursor: pointer; padding: 8px 12px; text-transform: uppercase; font-family: Impact, Haettenschweiler, "Arial Narrow Bold", Arial, sans-serif; font-size: 18px; }
 .brand-home:focus { outline: 2px solid var(--red); outline-offset: 3px; }
+
+.wide-grid { align-items: start; }
+.group-card h3 { margin: 18px 0 10px; font-size: 18px; }
+.match-row { border-top: 2px solid var(--red); padding: 10px 0; display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; }
+.match-row strong { color: var(--red); white-space: nowrap; }
+.match-row small { grid-column: 1 / -1; color: var(--muted); }
+.bracket { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; align-items: start; }
+.final-match { border: 2px solid var(--red); margin: 10px 0; padding: 10px; background: var(--cream); }
+.final-match div { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.final-match strong { color: var(--red); }
+.final-match small { display: block; margin-top: 6px; color: var(--muted); }
+.standing-row { padding: 5px 8px; border-left: 4px solid transparent; }
+.standing-row.qualified { background: rgba(19, 128, 74, 0.12); border-left-color: #13804a; }
+.standing-row.eliminated { background: rgba(177, 18, 22, 0.10); border-left-color: var(--red); color: #7a1114; }
