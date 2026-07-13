@@ -1,23 +1,44 @@
-﻿const endpoint = process.env.GOOGLE_SHEETS_ENDPOINT;
+const endpoint = process.env.GOOGLE_SHEETS_ENDPOINT;
 const secret = process.env.GOOGLE_SHEETS_SECRET || process.env.API_SECRET || "";
 
+function normalizeEndpoint(value) {
+  return String(value || "").trim();
+}
+
 async function callSheet(action, payload = {}) {
-  if (!endpoint) {
+  const scriptUrl = normalizeEndpoint(endpoint);
+  if (!scriptUrl) {
     throw new Error("GOOGLE_SHEETS_ENDPOINT non configurato su Vercel");
   }
 
-  const response = await fetch(endpoint, {
+  if (!scriptUrl.includes("script.google.com") || !scriptUrl.includes("/exec")) {
+    throw new Error("GOOGLE_SHEETS_ENDPOINT deve essere l'URL Web App di Apps Script che termina con /exec");
+  }
+
+  const response = await fetch(scriptUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action, secret, ...payload })
   });
 
   const text = await response.text();
-  if (!response.ok) {
-    throw new Error(text || `Google Sheets HTTP ${response.status}`);
+  const contentType = response.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    const looksLikeGoogleLogin = text.includes("ServiceLogin") || text.includes("accounts.google") || text.includes("storage_access");
+    if (looksLikeGoogleLogin) {
+      throw new Error("Google Apps Script non e' pubblico: pubblica la Web App con accesso 'Anyone' e usa l'URL /exec.");
+    }
+
+    throw new Error("Google Apps Script ha risposto con HTML invece che JSON. Controlla GOOGLE_SHEETS_ENDPOINT e la pubblicazione Web App.");
   }
 
-  return text ? JSON.parse(text) : {};
+  const data = text ? JSON.parse(text) : {};
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.error || `Google Sheets HTTP ${response.status}`);
+  }
+
+  return data;
 }
 
 module.exports = async function handler(req, res) {
