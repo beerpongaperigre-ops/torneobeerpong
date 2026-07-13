@@ -1,5 +1,6 @@
 const app = document.getElementById("app");
 const sessionKey = "aperigre-team-session";
+const notificationKeyPrefix = "aperigre-notified-match:";
 const STATE_STALE_SECONDS = 60;
 let cachedState = null;
 let busy = false;
@@ -15,6 +16,54 @@ function session() {
 
 function setSession(value) { localStorage.setItem(sessionKey, JSON.stringify(value)); }
 function clearSession() { localStorage.removeItem(sessionKey); }
+function notificationKey(teamName) {
+  return notificationKeyPrefix + String(teamName || "").toLowerCase();
+}
+
+function browserNotificationsAvailable() {
+  return "Notification" in window && window.isSecureContext;
+}
+
+async function ensureNotificationPermission() {
+  if (!browserNotificationsAvailable() || Notification.permission !== "default") return;
+  try { await Notification.requestPermission(); } catch { }
+}
+
+function findTeamTable(state, teamName) {
+  return tables(state).find(t => teams(t).some(team => String(team.nome).toLowerCase() === String(teamName).toLowerCase()));
+}
+
+function notifyTeamMatchIfNeeded(state) {
+  const current = session();
+  if (!current?.teamName || !browserNotificationsAvailable() || Notification.permission !== "granted") return;
+
+  const table = findTeamTable(state, current.teamName);
+  if (!table?.partita?.id) return;
+
+  const key = notificationKey(current.teamName);
+  if (localStorage.getItem(key) === String(table.partita.id)) return;
+  localStorage.setItem(key, String(table.partita.id));
+
+  const opponents = teams(table).map(team => team.nome).filter(Boolean).join(" vs ");
+  const notification = new Notification("Partita iniziata", {
+    body: `${current.teamName}: vai al tavolo ${table.nome}${opponents ? ` (${opponents})` : ""}`,
+    tag: `match-${table.partita.id}`,
+    renotify: true
+  });
+  notification.onclick = () => {
+    window.focus();
+    go("/squadra");
+    notification.close();
+  };
+}
+
+async function pollTeamNotification() {
+  if (busy || !session()?.teamName) return;
+  try {
+    const state = await loadState();
+    notifyTeamMatchIfNeeded(state);
+  } catch { }
+}
 
 async function api(action, payload = {}) {
   const response = await fetch(`/api/sheets${action === "getState" ? "?action=getState" : ""}`, {
@@ -70,20 +119,22 @@ function shell(title, content, state) {
 function renderHome() {
   app.innerHTML = `
     <section class="poster hero">
-      <div class="hero-meta"><span>@APERIGRE_</span><span>2026</span><span>#APERIGRE2026</span></div>
-      <div class="brand"><h1>APERIGRE</h1><p>BEER PONG 2026</p></div>
+      <div class="hero-meta"><span>@APERIGRÈ_</span><span>2026</span><span>#APERIGRÈ2026</span></div>
+      <div class="brand"><h1>APERIGRÈ</h1><p>BEER PONG 2026</p></div>
       <div class="event-row"><strong>TORNEO LIVE</strong><strong>MAGRE DI SCHIO</strong></div>
       <div class="subline">Punteggi, gironi, fasi finali e area squadre</div>
     </section>
     <section class="menu-grid">
-      <button class="menu-button" data-go="/calendario">Calendario</button>
-      <button class="menu-button" data-go="/gironi">Gironi</button>
+<button class="menu-button" data-go="/gironi">Gironi</button>
       <button class="menu-button" data-go="/campi">Area campi</button>
       <button class="menu-button" data-go="/fasi-finali">Fasi finali</button>
       <button class="menu-button" data-go="/squadra">Squadra</button>
     </section>
   `;
-  app.querySelectorAll("[data-go]").forEach(button => button.addEventListener("click", () => go(button.dataset.go)));
+  app.querySelectorAll("[data-go]").forEach(button => button.addEventListener("click", async () => {
+    if (button.dataset.go === "/squadra") await ensureNotificationPermission();
+    go(button.dataset.go);
+  }));
 }
 
 async function renderDashboard(kind, renderId) {
@@ -94,8 +145,8 @@ async function renderDashboard(kind, renderId) {
 }
 
 function renderDashboardState(kind, state) {
-  if (kind === "campi" || kind === "calendario") {
-    shell(kind === "campi" ? "Area Campi" : "Calendario", `<div class="grid">${tables(state).map(tableCard).join("")}</div>`, state);
+  if (kind === "campi") {
+    shell("Area Campi", `<div class="grid">${tables(state).map(tableCard).join("")}</div>`, state);
     return;
   }
   if (kind === "gironi") {
@@ -154,11 +205,11 @@ function finalMatchCard(match) {
 }
 async function login(event) {
   event.preventDefault();
-  const username = event.target.username.value.trim();
   const password = event.target.password.value;
-  const result = await api("login", { username, password });
-  if (!result.ok) throw new Error(result.error || "Credenziali non valide");
-  setSession({ teamName: result.teamName, username });
+  const result = await api("login", { password });
+  if (!result.ok) throw new Error(result.error || "Password non valida");
+  setSession({ teamName: result.teamName });
+  await ensureNotificationPermission();
   go("/squadra");
 }
 
@@ -166,10 +217,9 @@ function renderLogin() {
   shell("Area Squadra", `
     <form class="poster hero login" data-login>
       <div class="brand"><h1>LOGIN</h1><p>SQUADRA</p></div>
-      <label class="field">Utente<input class="input" name="username" autocomplete="username" required></label>
-      <label class="field">Password<input class="input" name="password" type="password" autocomplete="current-password" required></label>
+<label class="field">Password<input class="input" name="password" type="password" autocomplete="current-password" required></label>
       <div class="actions"><button class="panel-button" type="submit">Entra</button><button class="panel-button secondary" type="button" data-home>Home</button></div>
-      <div class="notice">Le credenziali vengono generate automaticamente da WinForms.</div>
+      <div class="notice">La password viene generata automaticamente da WinForms.</div>
     </form>
   `);
   app.querySelector("[data-login]").addEventListener("submit", async event => {
@@ -183,7 +233,8 @@ async function renderTeamPage(renderId) {
   if (!current) { renderLogin(); return; }
   const state = await loadState();
   if (renderId !== latestRenderId) return;
-  const table = tables(state).find(t => teams(t).some(team => String(team.nome).toLowerCase() === String(current.teamName).toLowerCase()));
+  notifyTeamMatchIfNeeded(state);
+  const table = findTeamTable(state, current.teamName);
   if (!table || !table.partita) {
     shell(current.teamName, `<div class="card"><h2>Nessuna partita al momento</h2><p>Aspetta la chiamata al tavolo.</p><div class="actions"><button class="panel-button secondary" data-logout>Esci</button></div></div>`, state);
     app.querySelector("[data-logout]").addEventListener("click", () => { clearSession(); go("/squadra"); });
@@ -256,7 +307,7 @@ async function render() {
   try {
     if (path === "home") return renderHome();
     if (path === "squadra") return await renderTeamPage(renderId);
-    if (["calendario", "gironi", "campi", "fasi-finali"].includes(path)) return await renderDashboard(path, renderId);
+    if (["gironi", "campi", "fasi-finali"].includes(path)) return await renderDashboard(path, renderId);
     renderHome();
   } catch (error) {
     if (renderId !== latestRenderId) return;
@@ -271,3 +322,4 @@ setInterval(() => {
   const path = location.pathname;
   if (!busy && path !== "/" && path !== "") render();
 }, 1000);
+setInterval(pollTeamNotification, 3000);

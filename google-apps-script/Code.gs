@@ -32,7 +32,7 @@ function commandsSheet() {
 }
 
 function teamsSheet() {
-  return sheet(TEAMS_SHEET, ["username", "password", "teamName"]);
+  return sheet(TEAMS_SHEET, ["teamName", "password"]);
 }
 
 function setState(state) {
@@ -45,13 +45,13 @@ function setState(state) {
 
 function syncTeams(credentials) {
   const sh = teamsSheet();
-  const rows = [["username", "password", "teamName"]];
+  const rows = [["teamName", "password"]];
   (credentials || []).forEach(item => {
     if (!item) return;
-    rows.push([String(item.username || ""), String(item.password || ""), String(item.teamName || item.username || "")]);
+    rows.push([String(item.teamName || ""), String(item.password || "")]);
   });
   sh.clearContents();
-  sh.getRange(1, 1, rows.length, 3).setValues(rows);
+  sh.getRange(1, 1, rows.length, 2).setValues(rows);
 }
 
 function getState() {
@@ -95,11 +95,11 @@ function ackCommand(id, result) {
   return { ok: true };
 }
 
-function login(username, password) {
+function login(password) {
   const values = teamsSheet().getDataRange().getValues().slice(1);
-  const row = values.find(r => String(r[0]).trim().toLowerCase() === String(username || "").trim().toLowerCase() && String(r[1]) === String(password || ""));
-  if (!row) return { ok: false, error: "Credenziali non valide" };
-  return { ok: true, teamName: String(row[2] || row[0]) };
+  const row = values.find(r => String(r[1]) === String(password || ""));
+  if (!row) return { ok: false, error: "Password non valida" };
+  return { ok: true, teamName: String(row[0] || "") };
 }
 
 function doPost(e) {
@@ -113,7 +113,7 @@ function doPost(e) {
       case "getCommands": return jsonOut(getCommands());
       case "addCommand": return jsonOut(addCommand(body.command));
       case "ackCommand": return jsonOut(ackCommand(body.id, body.result));
-      case "login": return jsonOut(login(body.username, body.password));
+      case "login": return jsonOut(login(body.password));
       default: return jsonOut({ ok: false, error: "Azione non valida" });
     }
   } catch (error) {
