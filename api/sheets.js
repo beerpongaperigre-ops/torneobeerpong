@@ -52,10 +52,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === "login") {
-      return res.status(200).json(await callSheet("login", {
-        username: body.username,
-        password: body.password
-      }));
+      return res.status(200).json(await callSheet("login", { password: body.password }));
     }
 
     if (action === "command") {

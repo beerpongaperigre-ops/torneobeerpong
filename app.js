@@ -219,8 +219,7 @@ function renderLogin() {
       <div class="brand"><h1>LOGIN</h1><p>SQUADRA</p></div>
 <label class="field">Password<input class="input" name="password" type="password" autocomplete="current-password" required></label>
       <div class="actions"><button class="panel-button" type="submit">Entra</button><button class="panel-button secondary" type="button" data-home>Home</button></div>
-      <div class="notice">La password viene generata automaticamente da WinForms.</div>
-    </form>
+</form>
   `);
   app.querySelector("[data-login]").addEventListener("submit", async event => {
     try { await login(event); } catch (error) { alert(error.message); }

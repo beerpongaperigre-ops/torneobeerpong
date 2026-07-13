@@ -95,11 +95,16 @@ function ackCommand(id, result) {
   return { ok: true };
 }
 
+function normalizePassword(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
 function login(password) {
+  const requested = normalizePassword(password);
   const values = teamsSheet().getDataRange().getValues().slice(1);
-  const row = values.find(r => String(r[1]) === String(password || ""));
+  const row = values.find(r => normalizePassword(r[1]) === requested || normalizePassword(r[2]) === requested);
   if (!row) return { ok: false, error: "Password non valida" };
-  return { ok: true, teamName: String(row[0] || "") };
+  return { ok: true, teamName: String(row[2] || row[0] || "").trim() };
 }
 
 function doPost(e) {
