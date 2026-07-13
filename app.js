@@ -320,6 +320,6 @@ async function render() {
 render();
 setInterval(() => {
   const path = location.pathname;
-  if (!busy && path !== "/" && path !== "") render();
+  if (!busy && path !== "/" && path !== "" && !(path === "/squadra" && !session())) render();
 }, 1000);
 setInterval(pollTeamNotification, 3000);
