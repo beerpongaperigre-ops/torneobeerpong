@@ -27,7 +27,7 @@ if ($LASTEXITCODE -ne 0 -or $insideRepo.Trim() -ne "true") {
 }
 
 $gitDir = git rev-parse --git-dir
-if (Test-Path (Join-Path $gitDir "rebase-merge") -or Test-Path (Join-Path $gitDir "rebase-apply")) {
+if ((Test-Path (Join-Path $gitDir "rebase-merge")) -or (Test-Path (Join-Path $gitDir "rebase-apply"))) {
     throw "C'e' un rebase Git interrotto. Esegui 'git rebase --continue' oppure 'git rebase --abort' nella cartella VercelClient prima di rilanciare il deploy."
 }
 
