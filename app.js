@@ -22,6 +22,13 @@ function notificationKey(teamName) {
   return notificationKeyPrefix + String(teamName || "").toLowerCase();
 }
 
+function sameTeam(a, b) {
+  return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+}
+
+function terminateKey(table) {
+  return terminateKeyPrefix + String(table?.nome || "") + ":" + String(table?.partita?.id || "");
+}
 function browserNotificationsAvailable() {
   return "Notification" in window && window.isSecureContext;
 }
@@ -32,7 +39,7 @@ async function ensureNotificationPermission() {
 }
 
 function findTeamTable(state, teamName) {
-  return tables(state).find(t => teams(t).some(team => String(team.nome).toLowerCase() === String(teamName).toLowerCase()));
+  return tables(state).find(t => teams(t).some(team => sameTeam(team.nome, teamName)));
 }
 
 function notifyTeamMatchIfNeeded(state) {
