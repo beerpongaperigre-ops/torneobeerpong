@@ -280,8 +280,8 @@ async function renderTeamPage(renderId) {
   const canAskClose = !!table.partita.concludibile;
   scheduleTerminateIfReady(table, bothConsented && canAskClose);
 
-  const consentText = currentTeam?.consensoConcludi ? "Consenso inviato" : "Conferma fine partita";
-  const consentDisabled = !canAskClose || currentTeam?.consensoConcludi;
+  const consentText = currentTeam?.consensoConcludi ? "Annulla consenso" : "Conferma fine partita";
+  const consentDisabled = !canAskClose;
   const closeMessage = closeStatusMessage(table, matchTeams, currentTeam, bothConsented, canAskClose);
 
   shell(current.teamName, `
@@ -346,12 +346,13 @@ function scheduleTerminateIfReady(table, ready) {
 
 function renderTeam(team, table, scoreLocked, currentTeamName) {
   const isMine = sameTeam(team.nome, currentTeamName);
+  const scoreDisabled = scoreLocked || !isMine;
   const consent = team.consensoConcludi ? `<div class="team-badge">Consenso fine inviato</div>` : "";
   return `<section class="card team-card ${isMine ? "own-team" : ""}"><div class="team-top"><div><h2>${esc(team.nome)}</h2>${consent}</div><div class="total">${esc(displayTeamTotal(team, table))}</div></div>${players(team).map(player => `
     <div class="player"><div class="player-name">${esc(player.nome)}</div><div class="stepper">
-      <button class="secondary" ${scoreLocked ? "disabled" : ""} data-score data-table="${esc(table.nome)}" data-match="${esc(table.partita.id)}" data-team="${esc(team.index)}" data-player="${esc(player.index)}" data-action="decrement">-</button>
+      <button class="secondary" ${scoreDisabled ? "disabled" : ""} data-score data-table="${esc(table.nome)}" data-match="${esc(table.partita.id)}" data-team="${esc(team.index)}" data-player="${esc(player.index)}" data-action="decrement">-</button>
       <div class="score">${esc(displayPlayerScore(team, player, table))}</div>
-      <button ${scoreLocked ? "disabled" : ""} data-score data-table="${esc(table.nome)}" data-match="${esc(table.partita.id)}" data-team="${esc(team.index)}" data-player="${esc(player.index)}" data-action="increment">+</button>
+      <button ${scoreDisabled ? "disabled" : ""} data-score data-table="${esc(table.nome)}" data-match="${esc(table.partita.id)}" data-team="${esc(team.index)}" data-player="${esc(player.index)}" data-action="increment">+</button>
     </div></div>`).join("")}</section>`;
 }
 
@@ -429,6 +430,7 @@ async function sendScore(button, table) {
       team: `team${button.dataset.team}`,
       player: `player${button.dataset.player}`,
       action: button.dataset.action,
+      squadra: session()?.teamName || "",
       clientCreatedAtUtc: new Date().toISOString()
     }});
     if (feedback) feedback.textContent = "Punto inviato. Sincronizzo con WinForms...";
