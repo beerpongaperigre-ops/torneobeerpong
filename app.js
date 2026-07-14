@@ -7,6 +7,7 @@ let cachedState = null;
 let busy = false;
 let latestRenderId = 0;
 let renderInProgress = false;
+let teamOfflineActive = false;
 const pendingTerminateTimers = new Map();
 const pendingScoreUpdates = new Map();
 
@@ -100,8 +101,9 @@ async function api(action, payload = {}) {
 async function loadState() {
   const data = await api("getState");
   cachedState = data.state;
-  if (!cachedState) throw new Error("Torneo non sincronizzato: abilita Google Sheets nel WinForms");
+  if (!cachedState) throw new Error("Torneo non sincronizzato: abilita Vercel nel WinForms");
   if (stateAgeSeconds(cachedState) > STATE_STALE_SECONDS) throw new Error("PC offline o sincronizzazione Vercel disattivata nel WinForms");
+  teamOfflineActive = false;
   return cachedState;
 }
 
@@ -264,7 +266,7 @@ function renderLogin() {
 async function renderTeamPage(renderId) {
   const current = session();
   if (!current) { renderLogin(); return; }
-  if (!cachedState) {
+  if (!cachedState && !teamOfflineActive) {
     shell(current.teamName, `<section class="poster hero team-waiting"><div class="brand"><h1>${esc(current.teamName)}</h1><p>CARICAMENTO</p></div><div class="empty-state">Controllo la tua partita...</div></section>`);
   }
   const state = await loadState();  if (renderId !== latestRenderId) return;
@@ -320,6 +322,7 @@ async function renderTeamPage(renderId) {
 function renderTeamOffline(error) {
   const current = session();
   if (!current) { renderLogin(); return; }
+  teamOfflineActive = true;
   shell(current.teamName, `<section class="poster hero team-waiting">
     <div class="brand"><h1>${esc(current.teamName)}</h1><p>OFFLINE</p></div>
     <div class="empty-state">${esc(error?.message || "PC offline o sincronizzazione Vercel disattivata nel WinForms")}</div>
