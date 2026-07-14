@@ -69,7 +69,12 @@ function clearAll() {
 
 function getCommands() {
   const sh = commandsSheet();
-  const values = sh.getDataRange().getValues().slice(1);
+  const lastRow = sh.getLastRow();
+  if (lastRow <= 1) return { ok: true, commands: [] };
+
+  const windowSize = Math.min(80, lastRow - 1);
+  const startRow = lastRow - windowSize + 1;
+  const values = sh.getRange(startRow, 1, windowSize, 6).getValues();
   const commands = values
     .filter(row => row[0] && row[2] !== "done")
     .map(row => ({ id: String(row[0]), ...JSON.parse(row[1] || "{}") }));
@@ -85,14 +90,28 @@ function addCommand(command) {
 
 function ackCommand(id, result) {
   const sh = commandsSheet();
-  const values = sh.getDataRange().getValues();
-  for (let i = 1; i < values.length; i++) {
+  const lastRow = sh.getLastRow();
+  if (lastRow <= 1) return { ok: true };
+
+  const windowSize = Math.min(120, lastRow - 1);
+  const startRow = lastRow - windowSize + 1;
+  const values = sh.getRange(startRow, 1, windowSize, 1).getValues();
+  for (let i = values.length - 1; i >= 0; i--) {
     if (String(values[i][0]) === String(id)) {
-      sh.getRange(i + 1, 3, 1, 3).setValues([["done", result || "", new Date().toISOString()]]);
+      sh.getRange(startRow + i, 3, 1, 3).setValues([["done", result || "", new Date().toISOString()]]);
+      compactDoneCommands(sh);
       break;
     }
   }
   return { ok: true };
+}
+
+function compactDoneCommands(sh) {
+  const lastRow = sh.getLastRow();
+  if (lastRow < 250) return;
+  const keepRows = 120;
+  const deleteCount = lastRow - keepRows - 1;
+  if (deleteCount > 0) sh.deleteRows(2, deleteCount);
 }
 
 function normalizePassword(value) {
