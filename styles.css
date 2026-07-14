@@ -162,3 +162,31 @@ button, input { font: inherit; letter-spacing: 0; }
 .standing-row { padding: 5px 8px; border-left: 4px solid transparent; }
 .standing-row.qualified { background: rgba(19, 128, 74, 0.12); border-left-color: #13804a; }
 .standing-row.eliminated { background: rgba(177, 18, 22, 0.10); border-left-color: var(--red); color: #7a1114; }
+.form-feedback {
+  min-height: 22px;
+  margin-top: 12px;
+  font-family: Arial, sans-serif;
+  font-weight: 900;
+  color: var(--red);
+}
+
+.team-waiting .empty-state {
+  padding: 26px 12px;
+  text-align: center;
+  font-family: Arial, sans-serif;
+  font-weight: 900;
+  color: var(--muted);
+}
+
+.match-hero { padding: 10px 16px 18px; margin-bottom: 22px; }
+.match-title { text-align: center; padding: 8px 0 12px; border-bottom: 2px solid var(--red); }
+.match-title h1 { margin: 0; color: var(--red); font-size: clamp(38px, 8vw, 70px); line-height: .9; }
+.match-title p { margin: 6px 0 0; font-size: clamp(18px, 4vw, 30px); color: var(--ink); }
+.match-score { display: flex; justify-content: center; align-items: center; gap: 20px; padding: 18px 0 4px; color: var(--red); }
+.match-score strong { font-size: clamp(54px, 14vw, 110px); line-height: .85; }
+.match-score span { font-size: 42px; color: var(--ink); }
+.team-score-layout { margin-top: 18px; }
+.team-card.own-team { background: #fffaf0; }
+.team-badge { margin-top: 4px; font-family: Arial, sans-serif; font-weight: 900; color: #13804a; font-size: 12px; text-transform: uppercase; }
+.team-actions { margin-top: 20px; }
+.panel-button:disabled, .stepper button:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: 5px 5px 0 var(--red-dark); }

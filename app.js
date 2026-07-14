@@ -1,10 +1,12 @@
 const app = document.getElementById("app");
 const sessionKey = "aperigre-team-session";
 const notificationKeyPrefix = "aperigre-notified-match:";
+const terminateKeyPrefix = "aperigre-terminate-scheduled:";
 const STATE_STALE_SECONDS = 60;
 let cachedState = null;
 let busy = false;
 let latestRenderId = 0;
+const pendingTerminateTimers = new Set();
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[ch]));
@@ -205,12 +207,25 @@ function finalMatchCard(match) {
 }
 async function login(event) {
   event.preventDefault();
-  const password = event.target.password.value;
-  const result = await api("login", { password });
-  if (!result.ok) throw new Error(result.error || "Password non valida");
-  setSession({ teamName: result.teamName });
-  await ensureNotificationPermission();
-  go("/squadra");
+  const form = event.target;
+  const button = form.querySelector("[data-login-button]");
+  const feedback = form.querySelector("[data-login-feedback]");
+  const password = form.password.value;
+  if (button) button.disabled = true;
+  if (feedback) feedback.textContent = "Controllo password...";
+  try {
+    const result = await api("login", { password });
+    if (!result.ok) throw new Error(result.error || "Password non valida");
+    setSession({ teamName: result.teamName });
+    if (feedback) feedback.textContent = `Accesso eseguito: ${result.teamName}`;
+    await ensureNotificationPermission();
+    go("/squadra");
+  } catch (error) {
+    if (feedback) feedback.textContent = error.message || "Password non valida";
+    throw error;
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 function renderLogin() {
@@ -218,7 +233,8 @@ function renderLogin() {
     <form class="poster hero login" data-login>
       <div class="brand"><h1>LOGIN</h1><p>SQUADRA</p></div>
 <label class="field">Password<input class="input" name="password" type="password" autocomplete="current-password" required></label>
-      <div class="actions"><button class="panel-button" type="submit">Entra</button><button class="panel-button secondary" type="button" data-home>Home</button></div>
+      <div class="actions"><button class="panel-button" type="submit" data-login-button>Entra</button><button class="panel-button secondary" type="button" data-home>Home</button></div>
+      <div class="form-feedback" data-login-feedback></div>
 </form>
   `);
   app.querySelector("[data-login]").addEventListener("submit", async event => {
@@ -235,29 +251,91 @@ async function renderTeamPage(renderId) {
   notifyTeamMatchIfNeeded(state);
   const table = findTeamTable(state, current.teamName);
   if (!table || !table.partita) {
-    shell(current.teamName, `<div class="card"><h2>Nessuna partita al momento</h2><p>Aspetta la chiamata al tavolo.</p><div class="actions"><button class="panel-button secondary" data-logout>Esci</button></div></div>`, state);
+    shell(current.teamName, `<section class="poster hero team-waiting">
+      <div class="brand"><h1>${esc(current.teamName)}</h1><p>NESSUNA PARTITA</p></div>
+      <div class="empty-state">Aspetta la chiamata al tavolo.</div>
+      <div class="actions"><button class="panel-button secondary" data-logout>Esci</button></div>
+    </section>`, state);
     app.querySelector("[data-logout]").addEventListener("click", () => { clearSession(); go("/squadra"); });
     return;
   }
 
-  const matchTeams = teams(table);
+  const matchTeams = orderTeamsForCurrent(teams(table), current.teamName);
+  const currentTeam = matchTeams.find(t => sameTeam(t.nome, current.teamName));
+  const opponent = matchTeams.find(t => !sameTeam(t.nome, current.teamName));
   const scoreLocked = matchTeams.some(team => team.consensoConcludi);
+  const bothConsented = matchTeams.length >= 2 && matchTeams.every(team => team.consensoConcludi);
+  const canAskClose = !!table.partita.concludibile;
+  scheduleTerminateIfReady(table, bothConsented && canAskClose);
+
+  const consentText = currentTeam?.consensoConcludi ? "Consenso inviato" : "Conferma fine partita";
+  const consentDisabled = !canAskClose || currentTeam?.consensoConcludi;
+  const closeMessage = closeStatusMessage(table, matchTeams, currentTeam, bothConsented, canAskClose);
+
   shell(current.teamName, `
-    <div class="notice">Partita al tavolo ${esc(table.nome)} - ${esc(table.partita.stato || "")}</div>
-    <div class="score-layout">${matchTeams.map(team => renderTeam(team, table, scoreLocked)).join("")}</div>
-    <div class="actions">
-      <button class="panel-button" data-consent>${matchTeams.find(t => t.nome === current.teamName)?.consensoConcludi ? "Annulla consenso" : "Conferma fine partita"}</button>
+    <section class="match-hero poster">
+      <div class="hero-meta"><span>TAVOLO ${esc(table.nome)}</span><span>${esc(table.partita.stato || "-")}</span><span>${esc(stateAge(state))}</span></div>
+      <div class="match-title"><h1>${esc(currentTeam?.nome || current.teamName)}</h1><p>vs ${esc(opponent?.nome || "-")}</p></div>
+      <div class="match-score"><strong>${esc(currentTeam?.punti ?? 0)}</strong><span>-</span><strong>${esc(opponent?.punti ?? 0)}</strong></div>
+      <div class="subline">${esc(closeMessage)}</div>
+    </section>
+    <div class="score-layout team-score-layout">${matchTeams.map(team => renderTeam(team, table, scoreLocked, current.teamName)).join("")}</div>
+    <div class="actions team-actions">
+      <button class="panel-button" data-consent ${consentDisabled ? "disabled" : ""}>${esc(consentText)}</button>
+      <button class="panel-button secondary" data-refresh>Aggiorna</button>
       <button class="panel-button secondary" data-logout>Esci</button>
     </div>
+    <div class="form-feedback" data-team-feedback></div>
   `, state);
 
   app.querySelectorAll("[data-score]").forEach(button => button.addEventListener("click", () => sendScore(button, table)));
   app.querySelector("[data-consent]").addEventListener("click", () => sendConsent(table, current.teamName));
+  app.querySelector("[data-refresh]").addEventListener("click", () => renderTeamPage(++latestRenderId));
   app.querySelector("[data-logout]").addEventListener("click", () => { clearSession(); go("/squadra"); });
 }
 
-function renderTeam(team, table, scoreLocked) {
-  return `<section class="card team-card"><div class="team-top"><h2>${esc(team.nome)}</h2><div class="total">${esc(team.punti ?? 0)}</div></div>${players(team).map(player => `
+function orderTeamsForCurrent(matchTeams, teamName) {
+  const own = matchTeams.find(team => sameTeam(team.nome, teamName));
+  const others = matchTeams.filter(team => !sameTeam(team.nome, teamName));
+  return own ? [own, ...others] : matchTeams;
+}
+
+function closeStatusMessage(table, matchTeams, currentTeam, bothConsented, canAskClose) {
+  if (bothConsented && canAskClose) return "Entrambe le squadre hanno confermato: richiesta chiusura tra 10 secondi.";
+  if (currentTeam?.consensoConcludi) return "Hai confermato la fine partita. Attesa conferma avversaria.";
+  if (matchTeams.some(team => team.consensoConcludi)) return "L'altra squadra ha confermato la fine partita.";
+  if (canAskClose) return "La partita e' terminabile: serve il consenso di entrambe le squadre.";
+  return "Partita in corso: aggiorna i punti dei tuoi giocatori.";
+}
+
+function scheduleTerminateIfReady(table, ready) {
+  if (!ready || !table?.partita?.id) return;
+  const key = terminateKey(table);
+  if (pendingTerminateTimers.has(key) || localStorage.getItem(key) === "sent") return;
+  pendingTerminateTimers.add(key);
+  localStorage.setItem(key, "scheduled");
+  setTimeout(async () => {
+    try {
+      await api("command", { command: {
+        type: "terminate",
+        source: "teams",
+        tavolo: table.nome,
+        matchId: table.partita.id,
+        clientCreatedAtUtc: new Date().toISOString()
+      }});
+      localStorage.setItem(key, "sent");
+    } catch {
+      localStorage.removeItem(key);
+    } finally {
+      pendingTerminateTimers.delete(key);
+    }
+  }, 10000);
+}
+
+function renderTeam(team, table, scoreLocked, currentTeamName) {
+  const isMine = sameTeam(team.nome, currentTeamName);
+  const consent = team.consensoConcludi ? `<div class="team-badge">Consenso fine inviato</div>` : "";
+  return `<section class="card team-card ${isMine ? "own-team" : ""}"><div class="team-top"><div><h2>${esc(team.nome)}</h2>${consent}</div><div class="total">${esc(team.punti ?? 0)}</div></div>${players(team).map(player => `
     <div class="player"><div class="player-name">${esc(player.nome)}</div><div class="stepper">
       <button class="secondary" ${scoreLocked ? "disabled" : ""} data-score data-table="${esc(table.nome)}" data-match="${esc(table.partita.id)}" data-team="${esc(team.index)}" data-player="${esc(player.index)}" data-action="decrement">-</button>
       <div class="score">${esc(player.punti ?? 0)}</div>
@@ -268,7 +346,9 @@ function renderTeam(team, table, scoreLocked) {
 async function sendScore(button, table) {
   if (busy) return;
   busy = true;
+  const feedback = app.querySelector("[data-team-feedback]");
   button.disabled = true;
+  if (feedback) feedback.textContent = "Invio punto...";
   try {
     await api("command", { command: {
       type: "score",
@@ -280,26 +360,37 @@ async function sendScore(button, table) {
       action: button.dataset.action,
       clientCreatedAtUtc: new Date().toISOString()
     }});
-    await renderTeamPage(++latestRenderId);
+    if (feedback) feedback.textContent = "Punto inviato. Attesa conferma WinForms...";
+    setTimeout(() => renderTeamPage(++latestRenderId), 800);
   } catch (error) {
-    alert(error.message);
+    if (feedback) feedback.textContent = error.message;
   } finally {
     busy = false;
   }
 }
 
 async function sendConsent(table, teamName) {
-  await api("command", { command: {
-    type: "consensoTerminate",
-    source: "teams",
-    tavolo: table.nome,
-    matchId: table.partita.id,
-    squadra: teamName,
-    clientCreatedAtUtc: new Date().toISOString()
-  }});
-  await renderTeamPage(++latestRenderId);
+  if (busy) return;
+  busy = true;
+  const feedback = app.querySelector("[data-team-feedback]");
+  if (feedback) feedback.textContent = "Invio consenso...";
+  try {
+    await api("command", { command: {
+      type: "consensoTerminate",
+      source: "teams",
+      tavolo: table.nome,
+      matchId: table.partita.id,
+      squadra: teamName,
+      clientCreatedAtUtc: new Date().toISOString()
+    }});
+    if (feedback) feedback.textContent = "Consenso inviato. Attesa aggiornamento WinForms...";
+    setTimeout(() => renderTeamPage(++latestRenderId), 800);
+  } catch (error) {
+    if (feedback) feedback.textContent = error.message;
+  } finally {
+    busy = false;
+  }
 }
-
 async function render() {
   const renderId = ++latestRenderId;
   const path = location.pathname.replace(/^\//, "") || "home";
