@@ -110,8 +110,8 @@ async function api(action, payload = {}) {
 async function loadState() {
   const data = await api("getState");
   cachedState = data.state;
-  if (!cachedState) throw new Error("Torneo non sincronizzato: abilita Vercel nel WinForms");
-  if (stateAgeSeconds(cachedState) > STATE_STALE_SECONDS) throw new Error("PC offline o sincronizzazione Vercel disattivata nel WinForms");
+  if (!cachedState) throw new Error("Torneo non sincronizzato: abilita Vercel nell'host");
+  if (stateAgeSeconds(cachedState) > STATE_STALE_SECONDS) throw new Error("Host offline o sincronizzazione Vercel disattivata");
   teamOfflineActive = false;
   return cachedState;
 }
@@ -218,7 +218,7 @@ function matchCard(match) {
 function renderFinals(state) {
   const finals = state.fasiFinali || {};
   if (!finals.disponibile) {
-    shell("Fasi finali", `<div class="card"><h2>Non disponibili</h2><p>Le fasi finali saranno visibili quando vengono avviate da WinForms.</p></div>`, state);
+    shell("Fasi finali", `<div class="card"><h2>Non disponibili</h2><p>Le fasi finali saranno visibili quando vengono avviate dall'host.</p></div>`, state);
     return;
   }
 
@@ -304,7 +304,7 @@ async function renderTeamPage(renderId) {
   const consentText = currentTeam?.consensoConcludi ? "Annulla consenso" : "Conferma fine partita";
   const consentDisabled = !canAskClose;
   const closeMessage = closeStatusMessage(table, matchTeams, currentTeam, bothConsented, canAskClose, countdown);
-  const countdownHtml = countdown > 0 ? `<div class="countdown-box">Chiusura richiesta a WinForms tra <strong>${esc(countdown)}</strong> secondi</div>` : "";
+  const countdownHtml = countdown > 0 ? `<div class="countdown-box">Chiusura richiesta all'host tra <strong>${esc(countdown)}</strong> secondi</div>` : "";
 
   shell(current.teamName, `
     <section class="match-hero poster">
@@ -335,7 +335,7 @@ function renderTeamOffline(error) {
   teamOfflineActive = true;
   shell(current.teamName, `<section class="poster hero team-waiting">
     <div class="brand"><h1>${esc(current.teamName)}</h1><p>OFFLINE</p></div>
-    <div class="empty-state">${esc(error?.message || "PC offline o sincronizzazione Vercel disattivata nel WinForms")}</div>
+    <div class="empty-state">${esc(error?.message || "Host offline o sincronizzazione Vercel disattivata")}</div>
     <div class="actions">
       <button class="panel-button" data-refresh>Aggiorna</button>
       <button class="panel-button secondary" data-logout>Esci</button>
@@ -355,7 +355,7 @@ function orderTeamsForCurrent(matchTeams, teamName) {
 
 function closeStatusMessage(table, matchTeams, currentTeam, bothConsented, canAskClose, countdown = 0) {
   if (bothConsented && canAskClose && countdown > 0) return `Entrambe le squadre hanno confermato: richiesta chiusura tra ${countdown} secondi.`;
-  if (bothConsented && canAskClose) return "Entrambe le squadre hanno confermato: richiesta chiusura inviata a WinForms.";
+  if (bothConsented && canAskClose) return "Entrambe le squadre hanno confermato: richiesta chiusura inviata all'host.";
   if (currentTeam?.consensoConcludi) return "Hai confermato la fine partita. Attesa conferma avversaria.";
   if (matchTeams.some(team => team.consensoConcludi)) return "L'altra squadra ha confermato la fine partita.";
   if (canAskClose) return "La partita e' terminabile: serve il consenso di entrambe le squadre.";
@@ -499,7 +499,7 @@ async function sendScore(button, table) {
   const feedback = app.querySelector("[data-team-feedback]");
   button.disabled = true;
   applyOptimisticScore(button);
-  if (feedback) feedback.textContent = "Punto aggiornato. Invio a WinForms...";
+  if (feedback) feedback.textContent = "Punto aggiornato. Invio all'host...";
   try {
     await api("command", { command: {
       type: "score",
@@ -512,7 +512,7 @@ async function sendScore(button, table) {
       squadra: session()?.teamName || "",
       clientCreatedAtUtc: new Date().toISOString()
     }});
-    if (feedback) feedback.textContent = "Punto inviato. Sincronizzo con WinForms...";
+    if (feedback) feedback.textContent = "Punto inviato. Sincronizzo con l'host...";
     scheduleFastTeamRefresh();
   } catch (error) {
     if (feedback) feedback.textContent = error.message;
@@ -539,7 +539,7 @@ async function sendConsent(table, teamName) {
       squadra: teamName,
       clientCreatedAtUtc: new Date().toISOString()
     }});
-    if (feedback) feedback.textContent = "Consenso inviato. Sincronizzo con WinForms...";
+    if (feedback) feedback.textContent = "Consenso inviato. Sincronizzo con l'host...";
     scheduleFastTeamRefresh();
   } catch (error) {
     if (feedback) feedback.textContent = error.message;
