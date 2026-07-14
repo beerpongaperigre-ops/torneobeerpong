@@ -7,7 +7,7 @@ let cachedState = null;
 let busy = false;
 let latestRenderId = 0;
 let renderInProgress = false;
-const pendingTerminateTimers = new Set();
+const pendingTerminateTimers = new Map();
 const pendingScoreUpdates = new Map();
 
 function esc(value) {
@@ -30,6 +30,14 @@ function sameTeam(a, b) {
 
 function terminateKey(table) {
   return terminateKeyPrefix + String(table?.nome || "") + ":" + String(table?.partita?.id || "");
+}
+
+function terminateSentKey(table) {
+  return terminateKey(table) + ":sent";
+}
+
+function terminateDueAtKey(table) {
+  return terminateKey(table) + ":dueAt";
 }
 
 function browserNotificationsAvailable() {
@@ -278,11 +286,13 @@ async function renderTeamPage(renderId) {
   const scoreLocked = matchTeams.some(team => team.consensoConcludi);
   const bothConsented = matchTeams.length >= 2 && matchTeams.every(team => team.consensoConcludi);
   const canAskClose = !!table.partita.concludibile;
+  const countdown = terminateCountdownSeconds(table, bothConsented && canAskClose);
   scheduleTerminateIfReady(table, bothConsented && canAskClose);
 
   const consentText = currentTeam?.consensoConcludi ? "Annulla consenso" : "Conferma fine partita";
   const consentDisabled = !canAskClose;
-  const closeMessage = closeStatusMessage(table, matchTeams, currentTeam, bothConsented, canAskClose);
+  const closeMessage = closeStatusMessage(table, matchTeams, currentTeam, bothConsented, canAskClose, countdown);
+  const countdownHtml = countdown > 0 ? `<div class="countdown-box">Chiusura richiesta a WinForms tra <strong>${esc(countdown)}</strong> secondi</div>` : "";
 
   shell(current.teamName, `
     <section class="match-hero poster">
@@ -290,6 +300,7 @@ async function renderTeamPage(renderId) {
       <div class="match-title"><h1>${esc(currentTeam?.nome || current.teamName)}</h1><p>vs ${esc(opponent?.nome || "-")}</p></div>
       <div class="match-score"><strong>${esc(currentTeam?.punti ?? 0)}</strong><span>-</span><strong>${esc(opponent?.punti ?? 0)}</strong></div>
       <div class="subline">${esc(closeMessage)}</div>
+      ${countdownHtml}
     </section>
     <div class="score-layout team-score-layout">${matchTeams.map(team => renderTeam(team, table, scoreLocked, current.teamName)).join("")}</div>
     <div class="actions team-actions">
@@ -312,21 +323,40 @@ function orderTeamsForCurrent(matchTeams, teamName) {
   return own ? [own, ...others] : matchTeams;
 }
 
-function closeStatusMessage(table, matchTeams, currentTeam, bothConsented, canAskClose) {
-  if (bothConsented && canAskClose) return "Entrambe le squadre hanno confermato: richiesta chiusura tra 10 secondi.";
+function closeStatusMessage(table, matchTeams, currentTeam, bothConsented, canAskClose, countdown = 0) {
+  if (bothConsented && canAskClose && countdown > 0) return `Entrambe le squadre hanno confermato: richiesta chiusura tra ${countdown} secondi.`;
+  if (bothConsented && canAskClose) return "Entrambe le squadre hanno confermato: richiesta chiusura inviata a WinForms.";
   if (currentTeam?.consensoConcludi) return "Hai confermato la fine partita. Attesa conferma avversaria.";
   if (matchTeams.some(team => team.consensoConcludi)) return "L'altra squadra ha confermato la fine partita.";
   if (canAskClose) return "La partita e' terminabile: serve il consenso di entrambe le squadre.";
   return "Partita in corso: aggiorna i punti dei tuoi giocatori.";
 }
 
+function terminateCountdownSeconds(table, ready) {
+  if (!ready || !table?.partita?.id) return 0;
+  const dueAt = Number(localStorage.getItem(terminateDueAtKey(table)) || 0);
+  if (!dueAt) return 10;
+  return Math.max(0, Math.ceil((dueAt - Date.now()) / 1000));
+}
+
 function scheduleTerminateIfReady(table, ready) {
-  if (!ready || !table?.partita?.id) return;
+  if (!table?.partita?.id) return;
   const key = terminateKey(table);
-  if (pendingTerminateTimers.has(key) || localStorage.getItem(key) === "sent") return;
-  pendingTerminateTimers.add(key);
+  if (!ready) {
+    localStorage.removeItem(key);
+    localStorage.removeItem(terminateDueAtKey(table));
+    localStorage.removeItem(terminateSentKey(table));
+    clearPendingTerminateTimer(key);
+    return;
+  }
+
+  if (pendingTerminateTimers.has(key) || localStorage.getItem(terminateSentKey(table)) === "1") return;
   localStorage.setItem(key, "scheduled");
-  setTimeout(async () => {
+  if (!Number(localStorage.getItem(terminateDueAtKey(table)) || 0)) {
+    localStorage.setItem(terminateDueAtKey(table), String(Date.now() + 10000));
+  }
+  scheduleCountdownRefresh();
+  const timerId = setTimeout(async () => {
     try {
       await api("command", { command: {
         type: "terminate",
@@ -335,13 +365,32 @@ function scheduleTerminateIfReady(table, ready) {
         matchId: table.partita.id,
         clientCreatedAtUtc: new Date().toISOString()
       }});
-      localStorage.setItem(key, "sent");
+      localStorage.setItem(terminateSentKey(table), "1");
+      localStorage.removeItem(terminateDueAtKey(table));
     } catch {
       localStorage.removeItem(key);
+      localStorage.removeItem(terminateDueAtKey(table));
+      localStorage.removeItem(terminateSentKey(table));
     } finally {
       pendingTerminateTimers.delete(key);
+      if (location.pathname === "/squadra") render(true);
     }
   }, 10000);
+  pendingTerminateTimers.set(key, timerId);
+}
+
+function scheduleCountdownRefresh() {
+  for (let delay = 250; delay <= 10500; delay += 1000) {
+    setTimeout(() => {
+      if (!busy && location.pathname === "/squadra") render(true);
+    }, delay);
+  }
+}
+
+function clearPendingTerminateTimer(key) {
+  const timerId = pendingTerminateTimers.get(key);
+  if (timerId) clearTimeout(timerId);
+  pendingTerminateTimers.delete(key);
 }
 
 function renderTeam(team, table, scoreLocked, currentTeamName) {
@@ -448,6 +497,10 @@ async function sendConsent(table, teamName) {
   const feedback = app.querySelector("[data-team-feedback]");
   if (feedback) feedback.textContent = "Invio consenso...";
   try {
+    clearPendingTerminateTimer(terminateKey(table));
+    localStorage.removeItem(terminateKey(table));
+    localStorage.removeItem(terminateDueAtKey(table));
+    localStorage.removeItem(terminateSentKey(table));
     await api("command", { command: {
       type: "consensoTerminate",
       source: "teams",
