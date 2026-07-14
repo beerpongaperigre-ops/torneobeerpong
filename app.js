@@ -354,12 +354,36 @@ function renderTeam(team, table, scoreLocked, currentTeamName) {
     </div></div>`).join("")}</section>`;
 }
 
+function applyOptimisticScore(button) {
+  const delta = button.dataset.action === "decrement" ? -1 : 1;
+  const stepper = button.closest(".stepper");
+  const scoreEl = stepper?.querySelector(".score");
+  const card = button.closest(".team-card");
+  const totalEl = card?.querySelector(".total");
+  if (scoreEl) scoreEl.textContent = Math.max(0, Number(scoreEl.textContent || 0) + delta);
+  if (totalEl) totalEl.textContent = Math.max(0, Number(totalEl.textContent || 0) + delta);
+
+  const tableState = tables(cachedState).find(t => String(t.nome) === String(button.dataset.table) && String(t.partita?.id) === String(button.dataset.match));
+  const teamState = teams(tableState).find(t => String(t.index) === String(button.dataset.team));
+  const playerState = players(teamState).find(p => String(p.index) === String(button.dataset.player));
+  if (playerState) playerState.punti = Math.max(0, Number(playerState.punti || 0) + delta);
+  if (teamState) teamState.punti = players(teamState).reduce((sum, player) => sum + Number(player.punti || 0), 0);
+}
+
+function scheduleFastTeamRefresh() {
+  [250, 600, 1000, 1600, 2500, 4000].forEach(delay => {
+    setTimeout(() => {
+      if (!busy && location.pathname === "/squadra") render(true);
+    }, delay);
+  });
+}
 async function sendScore(button, table) {
   if (busy) return;
   busy = true;
   const feedback = app.querySelector("[data-team-feedback]");
   button.disabled = true;
-  if (feedback) feedback.textContent = "Invio punto...";
+  applyOptimisticScore(button);
+  if (feedback) feedback.textContent = "Punto aggiornato. Invio a WinForms...";
   try {
     await api("command", { command: {
       type: "score",
@@ -371,8 +395,8 @@ async function sendScore(button, table) {
       action: button.dataset.action,
       clientCreatedAtUtc: new Date().toISOString()
     }});
-    if (feedback) feedback.textContent = "Punto inviato. Attesa conferma WinForms...";
-    setTimeout(() => renderTeamPage(++latestRenderId), 800);
+    if (feedback) feedback.textContent = "Punto inviato. Sincronizzo con WinForms...";
+    scheduleFastTeamRefresh();
   } catch (error) {
     if (feedback) feedback.textContent = error.message;
   } finally {
@@ -394,8 +418,8 @@ async function sendConsent(table, teamName) {
       squadra: teamName,
       clientCreatedAtUtc: new Date().toISOString()
     }});
-    if (feedback) feedback.textContent = "Consenso inviato. Attesa aggiornamento WinForms...";
-    setTimeout(() => renderTeamPage(++latestRenderId), 800);
+    if (feedback) feedback.textContent = "Consenso inviato. Sincronizzo con WinForms...";
+    scheduleFastTeamRefresh();
   } catch (error) {
     if (feedback) feedback.textContent = error.message;
   } finally {
