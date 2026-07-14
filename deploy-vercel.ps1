@@ -34,6 +34,7 @@ if ((Test-Path (Join-Path $gitDir "rebase-merge")) -or (Test-Path (Join-Path $gi
 Write-Host "`nAllineo base GitHub..." -ForegroundColor Cyan
 Run-Git fetch origin main
 Run-Git reset --mixed origin/main
+
 Write-Host "`nStato modifiche:" -ForegroundColor Cyan
 git status --short
 
