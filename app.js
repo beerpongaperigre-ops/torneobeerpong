@@ -8,6 +8,7 @@ let busy = false;
 let latestRenderId = 0;
 let renderInProgress = false;
 const pendingTerminateTimers = new Set();
+const pendingScoreUpdates = new Map();
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[ch]));
@@ -346,22 +347,57 @@ function scheduleTerminateIfReady(table, ready) {
 function renderTeam(team, table, scoreLocked, currentTeamName) {
   const isMine = sameTeam(team.nome, currentTeamName);
   const consent = team.consensoConcludi ? `<div class="team-badge">Consenso fine inviato</div>` : "";
-  return `<section class="card team-card ${isMine ? "own-team" : ""}"><div class="team-top"><div><h2>${esc(team.nome)}</h2>${consent}</div><div class="total">${esc(team.punti ?? 0)}</div></div>${players(team).map(player => `
+  return `<section class="card team-card ${isMine ? "own-team" : ""}"><div class="team-top"><div><h2>${esc(team.nome)}</h2>${consent}</div><div class="total">${esc(displayTeamTotal(team, table))}</div></div>${players(team).map(player => `
     <div class="player"><div class="player-name">${esc(player.nome)}</div><div class="stepper">
       <button class="secondary" ${scoreLocked ? "disabled" : ""} data-score data-table="${esc(table.nome)}" data-match="${esc(table.partita.id)}" data-team="${esc(team.index)}" data-player="${esc(player.index)}" data-action="decrement">-</button>
-      <div class="score">${esc(player.punti ?? 0)}</div>
+      <div class="score">${esc(displayPlayerScore(team, player, table))}</div>
       <button ${scoreLocked ? "disabled" : ""} data-score data-table="${esc(table.nome)}" data-match="${esc(table.partita.id)}" data-team="${esc(team.index)}" data-player="${esc(player.index)}" data-action="increment">+</button>
     </div></div>`).join("")}</section>`;
 }
 
+function scoreUpdateKey(tableName, matchId, teamIndex, playerIndex) {
+  return [tableName, matchId, teamIndex, playerIndex].map(value => String(value || "")).join(":");
+}
+
+function rememberOptimisticScore(button, expectedValue) {
+  const key = scoreUpdateKey(button.dataset.table, button.dataset.match, button.dataset.team, button.dataset.player);
+  pendingScoreUpdates.set(key, {
+    expected: expectedValue,
+    action: button.dataset.action,
+    expiresAt: Date.now() + 15000
+  });
+}
+
+function displayPlayerScore(team, player, table) {
+  const key = scoreUpdateKey(table?.nome, table?.partita?.id, team?.index, player?.index);
+  const pending = pendingScoreUpdates.get(key);
+  const serverValue = Number(player?.punti || 0);
+  if (!pending) return serverValue;
+  if (Date.now() > pending.expiresAt) {
+    pendingScoreUpdates.delete(key);
+    return serverValue;
+  }
+  const reached = pending.action === "decrement" ? serverValue <= pending.expected : serverValue >= pending.expected;
+  if (reached) {
+    pendingScoreUpdates.delete(key);
+    return serverValue;
+  }
+  return pending.expected;
+}
+
+function displayTeamTotal(team, table) {
+  return players(team).reduce((sum, player) => sum + displayPlayerScore(team, player, table), 0);
+}
 function applyOptimisticScore(button) {
   const delta = button.dataset.action === "decrement" ? -1 : 1;
   const stepper = button.closest(".stepper");
   const scoreEl = stepper?.querySelector(".score");
   const card = button.closest(".team-card");
   const totalEl = card?.querySelector(".total");
-  if (scoreEl) scoreEl.textContent = Math.max(0, Number(scoreEl.textContent || 0) + delta);
+  const expectedValue = Math.max(0, Number(scoreEl?.textContent || 0) + delta);
+  if (scoreEl) scoreEl.textContent = expectedValue;
   if (totalEl) totalEl.textContent = Math.max(0, Number(totalEl.textContent || 0) + delta);
+  rememberOptimisticScore(button, expectedValue);
 
   const tableState = tables(cachedState).find(t => String(t.nome) === String(button.dataset.table) && String(t.partita?.id) === String(button.dataset.match));
   const teamState = teams(tableState).find(t => String(t.index) === String(button.dataset.team));
