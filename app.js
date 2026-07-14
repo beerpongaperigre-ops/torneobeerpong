@@ -15,6 +15,15 @@ function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[ch]));
 }
 
+function eventYear() {
+  return new Date().getFullYear();
+}
+
+function updateTopStripYear() {
+  const hashtag = document.querySelector("[data-event-hashtag]");
+  if (hashtag) hashtag.textContent = `#APERIGRÈ${eventYear()}`;
+}
+
 function session() {
   try { return JSON.parse(localStorage.getItem(sessionKey) || "null"); } catch { return null; }
 }
@@ -139,11 +148,12 @@ function shell(title, content, state) {
 }
 
 function renderHome() {
+  const year = eventYear();
   app.innerHTML = `
     <section class="poster hero">
-      <div class="hero-meta"><span>@APERIGRÈ_</span><span>2026</span><span>#APERIGRÈ2026</span></div>
-      <div class="brand"><h1>APERIGRÈ</h1><p>BEER PONG 2026</p></div>
-      <div class="event-row"><strong>TORNEO LIVE</strong><strong>MAGRE DI SCHIO</strong></div>
+      <div class="hero-meta"><span>@APERIGRÈ_</span><span>${esc(year)}</span><span>#APERIGRÈ${esc(year)}</span></div>
+      <div class="brand"><h1>APERIGRÈ</h1><p>BEER PONG ${esc(year)}</p></div>
+      <div class="event-row"><strong>TORNEO LIVE</strong><strong>MAGRÈ DI SCHIO</strong></div>
       <div class="subline">Punteggi, gironi, fasi finali e area squadre</div>
     </section>
     <section class="menu-grid">
@@ -561,6 +571,7 @@ async function render(force = false) {
   }
 }
 
+updateTopStripYear();
 render();
 setInterval(() => {
   const path = location.pathname;
