@@ -264,7 +264,7 @@ function renderLogin() {
 async function renderTeamPage(renderId) {
   const current = session();
   if (!current) { renderLogin(); return; }
-  if (!cachedState || stateAgeSeconds(cachedState) > STATE_STALE_SECONDS) {
+  if (!cachedState) {
     shell(current.teamName, `<section class="poster hero team-waiting"><div class="brand"><h1>${esc(current.teamName)}</h1><p>CARICAMENTO</p></div><div class="empty-state">Controllo la tua partita...</div></section>`);
   }
   const state = await loadState();  if (renderId !== latestRenderId) return;
@@ -315,6 +315,23 @@ async function renderTeamPage(renderId) {
   app.querySelector("[data-consent]").addEventListener("click", () => sendConsent(table, current.teamName));
   app.querySelector("[data-refresh]").addEventListener("click", () => renderTeamPage(++latestRenderId));
   app.querySelector("[data-logout]").addEventListener("click", () => { clearSession(); go("/squadra"); });
+}
+
+function renderTeamOffline(error) {
+  const current = session();
+  if (!current) { renderLogin(); return; }
+  shell(current.teamName, `<section class="poster hero team-waiting">
+    <div class="brand"><h1>${esc(current.teamName)}</h1><p>OFFLINE</p></div>
+    <div class="empty-state">${esc(error?.message || "PC offline o sincronizzazione Vercel disattivata nel WinForms")}</div>
+    <div class="actions">
+      <button class="panel-button" data-refresh>Aggiorna</button>
+      <button class="panel-button secondary" data-logout>Esci</button>
+      <button class="panel-button secondary" data-home>Home</button>
+    </div>
+  </section>`, cachedState);
+  app.querySelector("[data-refresh]").addEventListener("click", () => render(true));
+  app.querySelector("[data-logout]").addEventListener("click", () => { clearSession(); go("/squadra"); });
+  app.querySelector("[data-home]").addEventListener("click", () => go("/"));
 }
 
 function orderTeamsForCurrent(matchTeams, teamName) {
@@ -529,6 +546,10 @@ async function render(force = false) {
     renderHome();
   } catch (error) {
     if (renderId !== latestRenderId) return;
+    if (path === "squadra" && session()) {
+      renderTeamOffline(error);
+      return;
+    }
     shell("Errore", `<div class="card"><h2>Qualcosa non torna</h2><p>${esc(error.message)}</p><div class="actions"><button class="panel-button" data-home>Home</button></div></div>`);
     const home = app.querySelector("[data-home]");
     if (home) home.addEventListener("click", () => go("/"));
