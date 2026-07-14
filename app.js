@@ -30,6 +30,15 @@ function session() {
 
 function setSession(value) { localStorage.setItem(sessionKey, JSON.stringify(value)); }
 function clearSession() { localStorage.removeItem(sessionKey); }
+function normalizePassword(value) { return String(value || "").trim().toUpperCase(); }
+function sessionMatchesState(current, state) {
+  if (!current?.teamName || !current?.password) return false;
+  const credentials = Array.isArray(state?.teamCredentials) ? state.teamCredentials : [];
+  return credentials.some(item =>
+    sameTeam(item?.teamName, current.teamName) &&
+    normalizePassword(item?.password) === normalizePassword(current.password)
+  );
+}
 function notificationKey(teamName) {
   return notificationKeyPrefix + String(teamName || "").toLowerCase();
 }
@@ -246,7 +255,7 @@ async function login(event) {
   try {
     const result = await api("login", { password });
     if (!result.ok) throw new Error(result.error || "Password non valida");
-    setSession({ teamName: result.teamName });
+    setSession({ teamName: result.teamName, password });
     if (feedback) feedback.textContent = `Accesso eseguito: ${result.teamName}`;
     await ensureNotificationPermission();
     go("/squadra");
@@ -280,6 +289,13 @@ async function renderTeamPage(renderId) {
     shell(current.teamName, `<section class="poster hero team-waiting"><div class="brand"><h1>${esc(current.teamName)}</h1><p>CARICAMENTO</p></div><div class="empty-state">Controllo la tua partita...</div></section>`);
   }
   const state = await loadState();  if (renderId !== latestRenderId) return;
+  if (!sessionMatchesState(current, state)) {
+    clearSession();
+    renderLogin();
+    const feedback = app.querySelector("[data-login-feedback]");
+    if (feedback) feedback.textContent = "Sessione scaduta: inserisci la password del progetto attuale.";
+    return;
+  }
   notifyTeamMatchIfNeeded(state);
   const table = findTeamTable(state, current.teamName);
   if (!table || !table.partita) {
