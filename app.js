@@ -78,7 +78,7 @@ async function pollTeamNotification() {
 }
 
 async function api(action, payload = {}) {
-  const response = await fetch(`/api/sheets${action === "getState" ? "?action=getState" : ""}`, {
+  const response = await fetch(`/api/redis${action === "getState" ? "?action=getState" : ""}`, {
     method: action === "getState" ? "GET" : "POST",
     headers: { "Content-Type": "application/json" },
     cache: "no-store",
