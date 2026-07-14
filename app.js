@@ -6,6 +6,7 @@ const STATE_STALE_SECONDS = 60;
 let cachedState = null;
 let busy = false;
 let latestRenderId = 0;
+let renderInProgress = false;
 const pendingTerminateTimers = new Set();
 
 function esc(value) {
@@ -29,6 +30,7 @@ function sameTeam(a, b) {
 function terminateKey(table) {
   return terminateKeyPrefix + String(table?.nome || "") + ":" + String(table?.partita?.id || "");
 }
+
 function browserNotificationsAvailable() {
   return "Notification" in window && window.isSecureContext;
 }
@@ -111,9 +113,9 @@ function groups(state) { return Array.isArray(state?.gironi) ? state.gironi : Ob
 function teams(table) { return Array.isArray(table?.partita?.squadre) ? table.partita.squadre : Object.values(table?.partita?.squadre || {}); }
 function players(team) { return Array.isArray(team?.giocatori) ? team.giocatori : Object.values(team?.giocatori || {}); }
 
-function go(path) { if (location.pathname !== path) history.pushState({}, "", path); render(); }
+function go(path) { if (location.pathname !== path) history.pushState({}, "", path); render(true); }
 document.querySelector("[data-brand-home]")?.addEventListener("click", () => go("/"));
-window.addEventListener("popstate", () => render());
+window.addEventListener("popstate", () => render(true));
 
 function shell(title, content, state) {
   app.innerHTML = `
@@ -253,8 +255,10 @@ function renderLogin() {
 async function renderTeamPage(renderId) {
   const current = session();
   if (!current) { renderLogin(); return; }
-  const state = await loadState();
-  if (renderId !== latestRenderId) return;
+  if (!cachedState || stateAgeSeconds(cachedState) > STATE_STALE_SECONDS) {
+    shell(current.teamName, `<section class="poster hero team-waiting"><div class="brand"><h1>${esc(current.teamName)}</h1><p>CARICAMENTO</p></div><div class="empty-state">Controllo la tua partita...</div></section>`);
+  }
+  const state = await loadState();  if (renderId !== latestRenderId) return;
   notifyTeamMatchIfNeeded(state);
   const table = findTeamTable(state, current.teamName);
   if (!table || !table.partita) {
@@ -398,7 +402,9 @@ async function sendConsent(table, teamName) {
     busy = false;
   }
 }
-async function render() {
+async function render(force = false) {
+  if (renderInProgress && !force) return;
+  renderInProgress = true;
   const renderId = ++latestRenderId;
   const path = location.pathname.replace(/^\//, "") || "home";
   try {
@@ -411,12 +417,14 @@ async function render() {
     shell("Errore", `<div class="card"><h2>Qualcosa non torna</h2><p>${esc(error.message)}</p><div class="actions"><button class="panel-button" data-home>Home</button></div></div>`);
     const home = app.querySelector("[data-home]");
     if (home) home.addEventListener("click", () => go("/"));
+  } finally {
+    renderInProgress = false;
   }
 }
 
 render();
 setInterval(() => {
   const path = location.pathname;
-  if (!busy && path !== "/" && path !== "" && !(path === "/squadra" && !session())) render();
+  if (!busy && !renderInProgress && path !== "/" && path !== "" && !(path === "/squadra" && !session())) render();
 }, 1000);
 setInterval(pollTeamNotification, 3000);
