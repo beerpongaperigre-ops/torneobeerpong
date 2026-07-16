@@ -231,13 +231,18 @@ function renderFinals(state) {
     return;
   }
 
-  const rounds = [
-    ["Ottavi", finals.ottavi || []],
-    ["Quarti", finals.quarti || []],
-    ["Semifinali", finals.semifinali || []],
-    ["Finale 3/4", finals.finali34 || []],
-    ["Finale", finals.finali12 || []]
-  ];
+  const rounds = Array.isArray(finals.rounds) && finals.rounds.length
+    ? finals.rounds.map(round => [round.nome, round.partite || []])
+    : [
+        ...(Array.isArray(finals.sedicesimi) && finals.sedicesimi.some(match => match.id)
+          ? [["Sedicesimi", finals.sedicesimi]]
+          : []),
+        ["Ottavi", finals.ottavi || []],
+        ["Quarti", finals.quarti || []],
+        ["Semifinali", finals.semifinali || []],
+        ["Finale", finals.finali12 || []],
+        ["Finale 3/4", finals.finali34 || []]
+      ];
   shell("Fasi finali", `<div class="bracket">${rounds.map(([name, matches]) => `<section class="card bracket-round"><h2>${esc(name)}</h2>${matches.map(finalMatchCard).join("") || `<p>Da definire.</p>`}</section>`).join("")}</div>`, state);
 }
 
