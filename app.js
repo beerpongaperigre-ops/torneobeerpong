@@ -146,7 +146,8 @@ function go(path) { if (location.pathname !== path) history.pushState({}, "", pa
 document.querySelector("[data-brand-home]")?.addEventListener("click", () => go("/"));
 window.addEventListener("popstate", () => render(true));
 
-function shell(title, content, state) {
+function shell(title, content, state, viewClass = "") {
+  app.className = `app-shell${viewClass ? ` ${viewClass}` : ""}`;
   app.innerHTML = `
     <div class="toolbar">
       <h1>${esc(title)}</h1>
@@ -158,6 +159,7 @@ function shell(title, content, state) {
 
 function renderHome() {
   const year = eventYear();
+  app.className = "app-shell";
   app.innerHTML = `
     <section class="poster hero">
       <div class="hero-meta"><span>@APERIGRÈ_</span><span>${esc(year)}</span><span>#APERIGRÈ${esc(year)}</span></div>
@@ -248,11 +250,34 @@ function groupCard(group) {
 }
 
 function matchMiniCard(match) {
-  return `<div class="match-row"><span>${esc(match.squadra1)}</span><strong>${esc(match.punti1 ?? 0)} - ${esc(match.punti2 ?? 0)}</strong><span>${esc(match.squadra2)}</span><small>${esc(match.stato || "-")}</small></div>`;
+  return `<div class="match-row">
+    ${matchTeamResult(match, 1)}
+    <span class="match-versus">VS</span>
+    ${matchTeamResult(match, 2)}
+  </div>`;
 }
 
 function matchCard(match) {
-  return `<article class="card"><h2>${esc(match.squadra1)} ${esc(match.punti1 ?? 0)} - ${esc(match.punti2 ?? 0)} ${esc(match.squadra2)}</h2><p>${esc(match.stato || "-")}</p></article>`;
+  return `<article class="card"><div class="match-row">${matchTeamResult(match, 1)}<span class="match-versus">VS</span>${matchTeamResult(match, 2)}</div></article>`;
+}
+
+function matchOutcome(match) {
+  const status = String(match?.stato || "").trim().toUpperCase();
+  if (status === "VINTA_1") return { winner: 1, overtime: false };
+  if (status === "VINTA_2") return { winner: 2, overtime: false };
+  if (status === "VINTASUPPL_1") return { winner: 1, overtime: true };
+  if (status === "VINTASUPPL_2") return { winner: 2, overtime: true };
+  return { winner: 0, overtime: false };
+}
+
+function matchTeamResult(match, teamIndex) {
+  const outcome = matchOutcome(match);
+  const resultClass = outcome.winner === teamIndex
+    ? (outcome.overtime ? "match-team-overtime" : "match-team-winner")
+    : (outcome.winner ? "match-team-loser" : "");
+  const name = match?.[`squadra${teamIndex}`] || "-";
+  const points = match?.[`punti${teamIndex}`] ?? 0;
+  return `<div class="match-team-result ${resultClass}"><span>${esc(name)}</span><strong>${esc(points)}</strong></div>`;
 }
 
 function renderFinals(state) {
@@ -274,11 +299,11 @@ function renderFinals(state) {
         ["Finale", finals.finali12 || []],
         ["Finale 3/4", finals.finali34 || []]
       ];
-  shell("Fasi finali", `<div class="bracket">${rounds.map(([name, matches]) => `<section class="card bracket-round"><h2>${esc(name)}</h2>${matches.map(finalMatchCard).join("") || `<p>Da definire.</p>`}</section>`).join("")}</div>`, state);
+  shell("Fasi finali", `<div class="bracket" style="--round-count:${Math.max(1, rounds.length)}">${rounds.map(([name, matches]) => `<section class="card bracket-round"><h2>${esc(name)}</h2>${matches.map(finalMatchCard).join("") || `<p>Da definire.</p>`}</section>`).join("")}</div>`, state, "finals-view");
 }
 
 function finalMatchCard(match) {
-  return `<div class="final-match"><div><span>${esc(match.squadra1 || "-")}</span><strong>${esc(match.punti1 ?? 0)}</strong></div><div><span>${esc(match.squadra2 || "-")}</span><strong>${esc(match.punti2 ?? 0)}</strong></div><small>${esc(match.stato || "-")}</small></div>`;
+  return `<div class="final-match">${matchTeamResult(match, 1)}${matchTeamResult(match, 2)}</div>`;
 }
 async function login(event) {
   event.preventDefault();
