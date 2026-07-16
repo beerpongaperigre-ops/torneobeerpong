@@ -167,6 +167,7 @@ function renderHome() {
     </section>
     <section class="menu-grid">
 <button class="menu-button" data-go="/gironi">Gironi</button>
+      <button class="menu-button" data-go="/classifica-giocatori">Classifica giocatori</button>
       <button class="menu-button" data-go="/campi">Area campi</button>
       <button class="menu-button" data-go="/fasi-finali">Fasi finali</button>
       <button class="menu-button" data-go="/squadra">Squadra</button>
@@ -198,7 +199,37 @@ function renderDashboardState(kind, state) {
     renderFinals(state);
     return;
   }
+  if (kind === "classifica-giocatori") {
+    renderPlayerRanking(state);
+    return;
+  }
   renderHome();
+}
+
+function renderPlayerRanking(state) {
+  const ranking = Array.isArray(state.classificaGiocatori) ? state.classificaGiocatori : [];
+  const rows = ranking.map(player => `
+    <div class="leaderboard-row player-rank-${esc(player.posizione)}">
+      <strong class="leaderboard-position">${esc(player.posizione)}</strong>
+      <span class="leaderboard-name">${esc(player.nome)}</span>
+      <span class="leaderboard-team">${esc(player.squadra)}</span>
+      <span>${esc(player.centriFatti ?? 0)}</span>
+      <span>${esc(player.centriSubiti ?? 0)}</span>
+      <span>${esc(player.differenza ?? 0)}</span>
+      <span>${esc(player.partiteFatte ?? 0)}</span>
+      <strong>${Number(player.rateo || 0).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+    </div>`).join("");
+
+  shell("Classifica giocatori", `
+    <div class="leaderboard-wrap">
+      <div class="leaderboard">
+        <div class="leaderboard-row leaderboard-head">
+          <span>Pos.</span><span>Giocatore</span><span>Squadra</span><span>Fatti</span>
+          <span>Subiti</span><span>Diff.</span><span>Partite</span><span>Rateo</span>
+        </div>
+        ${rows || `<div class="leaderboard-empty">Classifica non ancora disponibile.</div>`}
+      </div>
+    </div>`, state);
 }
 
 function tableCard(table) {
@@ -576,7 +607,7 @@ async function render(force = false) {
   try {
     if (path === "home") return renderHome();
     if (path === "squadra") return await renderTeamPage(renderId);
-    if (["gironi", "campi", "fasi-finali"].includes(path)) return await renderDashboard(path, renderId);
+    if (["gironi", "campi", "fasi-finali", "classifica-giocatori"].includes(path)) return await renderDashboard(path, renderId);
     renderHome();
   } catch (error) {
     if (renderId !== latestRenderId) return;
