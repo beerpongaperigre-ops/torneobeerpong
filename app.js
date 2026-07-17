@@ -277,7 +277,7 @@ function matchTeamResult(match, teamIndex) {
     : (outcome.winner ? "match-team-loser" : "");
   const name = match?.[`squadra${teamIndex}`] || "-";
   const points = match?.[`punti${teamIndex}`] ?? 0;
-  return `<div class="match-team-result ${resultClass}"><span>${esc(name)}</span><strong>${esc(points)}</strong></div>`;
+  return `<div class="match-team-result ${resultClass}"><span title="${esc(name)}">${esc(name)}</span><strong>${esc(points)}</strong></div>`;
 }
 
 function renderFinals(state) {
@@ -287,7 +287,11 @@ function renderFinals(state) {
     return;
   }
 
-  const rounds = Array.isArray(finals.rounds) && finals.rounds.length
+  const previousStage = app.querySelector(".bracket-stage");
+  const previousScroll = previousStage
+    ? { left: previousStage.scrollLeft, top: previousStage.scrollTop }
+    : { left: 0, top: 0 };
+  const allRounds = Array.isArray(finals.rounds) && finals.rounds.length
     ? finals.rounds.map(round => [round.nome, round.partite || []])
     : [
         ...(Array.isArray(finals.sedicesimi) && finals.sedicesimi.some(match => match.id)
@@ -299,11 +303,107 @@ function renderFinals(state) {
         ["Finale", finals.finali12 || []],
         ["Finale 3/4", finals.finali34 || []]
       ];
-  shell("Fasi finali", `<div class="bracket" style="--round-count:${Math.max(1, rounds.length)}">${rounds.map(([name, matches]) => `<section class="card bracket-round"><h2>${esc(name)}</h2>${matches.map(finalMatchCard).join("") || `<p>Da definire.</p>`}</section>`).join("")}</div>`, state, "finals-view");
+
+  const thirdPlace = allRounds.find(([name]) => String(name).includes("3/4"));
+  const rounds = allRounds.filter(([name, matches]) =>
+    !String(name).includes("3/4") && Array.isArray(matches) && matches.length);
+  if (!rounds.length) {
+    shell("Fasi finali", `<div class="card"><h2>Tabellone in preparazione</h2><p>Le partite saranno visibili appena definite dall'host.</p></div>`, state);
+    return;
+  }
+
+  const cardWidth = 226;
+  const cardHeight = 88;
+  const columnGap = 86;
+  const titleHeight = 46;
+  const baseCount = Math.max(...rounds.map(([, matches]) => matches.length));
+  const slotHeight = baseCount >= 16 ? 102 : 114;
+  const treeWidth = rounds.length * cardWidth + Math.max(0, rounds.length - 1) * columnGap;
+  const treeHeight = Math.max(430, titleHeight + baseCount * slotHeight + 24);
+  const cardTop = (matchIndex, matchCount) =>
+    titleHeight + ((matchIndex + .5) * baseCount / matchCount * slotHeight) - cardHeight / 2;
+
+  const columns = rounds.map(([name, matches], roundIndex) => {
+    const left = roundIndex * (cardWidth + columnGap);
+    return `<section class="bracket-round" data-round-index="${roundIndex}" style="left:${left}px;width:${cardWidth}px">
+      <h2>${esc(name)}</h2>
+      ${matches.map((match, matchIndex) => finalMatchCard(
+        match,
+        `data-round="${roundIndex}" data-match="${matchIndex}"`,
+        cardTop(matchIndex, matches.length))).join("")}
+    </section>`;
+  }).join("");
+
+  const thirdMatches = thirdPlace?.[1] || [];
+  const thirdMarkup = thirdMatches.length
+    ? `<section class="third-place" style="left:${(rounds.length - 1) * (cardWidth + columnGap)}px;top:${Math.min(treeHeight - 142, treeHeight / 2 + 92)}px;width:${cardWidth}px">
+        <h2>Finale 3/4</h2>
+        ${finalMatchCard(thirdMatches[0], `data-third-place="true"`, 38)}
+      </section>`
+    : "";
+
+  shell("Fasi finali", `<div class="bracket-stage">
+    <div class="bracket-tree" data-tree-width="${treeWidth}" data-tree-height="${treeHeight}" style="width:${treeWidth}px;height:${treeHeight}px">
+      <svg class="bracket-connectors" aria-hidden="true" width="${treeWidth}" height="${treeHeight}"></svg>
+      ${columns}${thirdMarkup}
+    </div>
+  </div>`, state, "finals-view");
+
+  requestAnimationFrame(() => {
+    drawFinalsConnectors();
+    const stage = app.querySelector(".bracket-stage");
+    if (stage) {
+      stage.scrollLeft = previousScroll.left;
+      stage.scrollTop = previousScroll.top;
+    }
+  });
 }
 
-function finalMatchCard(match) {
-  return `<div class="final-match">${matchTeamResult(match, 1)}${matchTeamResult(match, 2)}</div>`;
+function finalMatchCard(match, attributes = "", top = 0) {
+  return `<div class="final-match" ${attributes} style="top:${top}px">${matchTeamResult(match, 1)}${matchTeamResult(match, 2)}</div>`;
+}
+
+function drawFinalsConnectors() {
+  const tree = app.querySelector(".bracket-tree");
+  const svg = tree?.querySelector(".bracket-connectors");
+  if (!tree || !svg) return;
+
+  const treeRect = tree.getBoundingClientRect();
+  const paths = [];
+  const point = element => {
+    const rectangle = element.getBoundingClientRect();
+    return {
+      left: rectangle.left - treeRect.left,
+      right: rectangle.right - treeRect.left,
+      centerY: rectangle.top - treeRect.top + rectangle.height / 2
+    };
+  };
+  const connect = (source, destination, dashed = false) => {
+    const from = point(source);
+    const to = point(destination);
+    const middleX = from.right + (to.left - from.right) / 2;
+    paths.push(`<path class="bracket-link${dashed ? " bracket-link-secondary" : ""}" d="M ${from.right} ${from.centerY} H ${middleX} V ${to.centerY} H ${to.left}"/>`);
+  };
+
+  const roundElements = [...tree.querySelectorAll(".bracket-round")];
+  for (let roundIndex = 1; roundIndex < roundElements.length; roundIndex += 1) {
+    const previous = [...roundElements[roundIndex - 1].querySelectorAll(".final-match")];
+    const current = [...roundElements[roundIndex].querySelectorAll(".final-match")];
+    current.forEach((destination, matchIndex) => {
+      const start = Math.floor(matchIndex * previous.length / current.length);
+      const end = Math.max(start, Math.floor((matchIndex + 1) * previous.length / current.length) - 1);
+      for (let sourceIndex = start; sourceIndex <= end; sourceIndex += 1) {
+        if (previous[sourceIndex]) connect(previous[sourceIndex], destination);
+      }
+    });
+  }
+
+  const thirdPlace = tree.querySelector("[data-third-place]");
+  if (thirdPlace && roundElements.length >= 2) {
+    const semifinals = [...roundElements[roundElements.length - 2].querySelectorAll(".final-match")];
+    semifinals.forEach(semifinal => connect(semifinal, thirdPlace, true));
+  }
+  svg.innerHTML = paths.join("");
 }
 async function login(event) {
   event.preventDefault();
