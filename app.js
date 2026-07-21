@@ -137,6 +137,22 @@ function stateAge(state) {
   return seconds <= STATE_STALE_SECONDS ? "online" : `offline da ${seconds}s`;
 }
 
+function matchElapsedSeconds(table) {
+  const calledAt = Date.parse(table?.partita?.chiamataAtUtc || "");
+  if (!calledAt) return null;
+  return Math.max(0, Math.floor((Date.now() - calledAt) / 1000));
+}
+
+function formatElapsedTime(seconds) {
+  if (!Number.isFinite(seconds)) return "";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = Math.floor(seconds % 60);
+  const minuteText = String(minutes).padStart(2, "0");
+  const secondText = String(remainingSeconds).padStart(2, "0");
+  return hours > 0 ? `${hours}:${minuteText}:${secondText}` : `${minuteText}:${secondText}`;
+}
+
 function tables(state) { return Array.isArray(state?.tavoli) ? state.tavoli : Object.values(state?.tavoli || {}); }
 function groups(state) { return Array.isArray(state?.gironi) ? state.gironi : Object.values(state?.gironi || {}); }
 function teams(table) { return Array.isArray(table?.partita?.squadre) ? table.partita.squadre : Object.values(table?.partita?.squadre || {}); }
@@ -147,7 +163,11 @@ document.querySelector("[data-brand-home]")?.addEventListener("click", () => go(
 window.addEventListener("popstate", () => render(true));
 
 function shell(title, content, state, viewClass = "") {
+  const route = location.pathname;
+  const preserveScroll = app.dataset.route === route;
+  const previousScrollTop = preserveScroll ? window.scrollY : 0;
   app.className = `app-shell${viewClass ? ` ${viewClass}` : ""}`;
+  app.dataset.route = route;
   app.innerHTML = `
     <div class="toolbar">
       <h1>${esc(title)}</h1>
@@ -155,11 +175,15 @@ function shell(title, content, state, viewClass = "") {
     </div>
     ${content}
   `;
+  requestAnimationFrame(() => window.scrollTo(0, previousScrollTop));
 }
 
 function renderHome() {
   const year = eventYear();
+  const preserveScroll = app.dataset.route === location.pathname;
+  const previousScrollTop = preserveScroll ? window.scrollY : 0;
   app.className = "app-shell";
+  app.dataset.route = location.pathname;
   app.innerHTML = `
     <section class="poster hero">
       <div class="hero-meta"><span>@APERIGRÈ_</span><span>${esc(year)}</span><span>#APERIGRÈ${esc(year)}</span></div>
@@ -175,6 +199,7 @@ function renderHome() {
       <button class="menu-button" data-go="/squadra">Squadra</button>
     </section>
   `;
+  requestAnimationFrame(() => window.scrollTo(0, previousScrollTop));
   app.querySelectorAll("[data-go]").forEach(button => button.addEventListener("click", async () => {
     if (button.dataset.go === "/squadra") await ensureNotificationPermission();
     go(button.dataset.go);
@@ -212,14 +237,14 @@ function renderPlayerRanking(state) {
   const ranking = Array.isArray(state.classificaGiocatori) ? state.classificaGiocatori : [];
   const rows = ranking.map(player => `
     <div class="leaderboard-row player-rank-${esc(player.posizione)}">
-      <strong class="leaderboard-position">${esc(player.posizione)}</strong>
-      <span class="leaderboard-name">${esc(player.nome)}</span>
-      <span class="leaderboard-team">${esc(player.squadra)}</span>
-      <span>${esc(player.centriFatti ?? 0)}</span>
-      <span>${esc(player.centriSubiti ?? 0)}</span>
-      <span>${esc(player.differenza ?? 0)}</span>
-      <span>${esc(player.partiteFatte ?? 0)}</span>
-      <strong>${Number(player.rateo || 0).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+      <strong class="leaderboard-position" data-label="Pos.">${esc(player.posizione)}</strong>
+      <span class="leaderboard-name" data-label="Giocatore">${esc(player.nome)}</span>
+      <span class="leaderboard-team" data-label="Squadra">${esc(player.squadra)}</span>
+      <span class="leaderboard-stat" data-label="Fatti">${esc(player.centriFatti ?? 0)}</span>
+      <span class="leaderboard-stat" data-label="Subiti">${esc(player.centriSubiti ?? 0)}</span>
+      <span class="leaderboard-stat" data-label="Diff.">${esc(player.differenza ?? 0)}</span>
+      <span class="leaderboard-stat" data-label="Partite">${esc(player.partiteFatte ?? 0)}</span>
+      <strong class="leaderboard-stat" data-label="Rateo">${Number(player.rateo || 0).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
     </div>`).join("");
 
   shell("Classifica giocatori", `
@@ -482,12 +507,17 @@ async function renderTeamPage(renderId) {
   const consentDisabled = !canAskClose;
   const closeMessage = closeStatusMessage(table, matchTeams, currentTeam, bothConsented, canAskClose, countdown);
   const countdownHtml = countdown > 0 ? `<div class="countdown-box">Chiusura richiesta all'host tra <strong>${esc(countdown)}</strong> secondi</div>` : "";
+  const elapsedSeconds = matchElapsedSeconds(table);
+  const elapsedHtml = elapsedSeconds === null
+    ? ""
+    : `<div class="match-elapsed">Tempo dalla chiamata <strong>${esc(formatElapsedTime(elapsedSeconds))}</strong></div>`;
 
   shell(current.teamName, `
     <section class="match-hero poster">
       <div class="hero-meta"><span>TAVOLO ${esc(table.nome)}</span><span>${esc(table.partita.stato || "-")}</span><span>${esc(stateAge(state))}</span></div>
       <div class="match-title"><h1>${esc(currentTeam?.nome || current.teamName)}</h1><p>vs ${esc(opponent?.nome || "-")}</p></div>
       <div class="match-score"><strong>${esc(currentTeam?.punti ?? 0)}</strong><span>-</span><strong>${esc(opponent?.punti ?? 0)}</strong></div>
+      ${elapsedHtml}
       <div class="subline">${esc(closeMessage)}</div>
       ${countdownHtml}
     </section>
